@@ -3,21 +3,30 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
+from collections.abc import Iterator
+from typing import Literal
 
 from .errors import (
     ArchiveError,
+    ArchiveCancelled,
     ArchiveNotFound,
     CorruptedArchive,
     OutputPermissionDenied,
+    PathTraversalBlocked,
     PasswordRequired,
     SevenZipMissing,
     UnknownArchiveError,
     UnsupportedFormat,
     WrongPassword,
 )
+
+OverwritePolicy = Literal["skip", "overwrite", "rename"]
 
 
 @dataclass(frozen=True)
@@ -27,6 +36,41 @@ class ExtractResult:
     sevenzip_path: Path
     stdout: str
     stderr: str
+
+
+@dataclass(frozen=True)
+class ArchiveEntry:
+    path: str
+    size: int | None
+    modified: str | None
+    attributes: str | None
+    is_directory: bool
+
+
+@dataclass(frozen=True)
+class ArchiveListing:
+    archive_path: Path
+    sevenzip_path: Path
+    entries: tuple[ArchiveEntry, ...]
+    stdout: str
+    stderr: str
+
+
+@dataclass(frozen=True)
+class TestResult:
+    archive_path: Path
+    sevenzip_path: Path
+    stdout: str
+    stderr: str
+
+
+@dataclass(frozen=True)
+class ProgressEvent:
+    kind: str
+    percent: int | None = None
+    current_file: str | None = None
+    message: str | None = None
+    result: ExtractResult | None = None
 
 
 def find_sevenzip(explicit_path: str | os.PathLike[str] | None = None) -> Path:
@@ -139,7 +183,72 @@ class SevenZipCliEngine:
     def __init__(self, sevenzip_path: str | os.PathLike[str] | None = None):
         self.sevenzip_path = find_sevenzip(sevenzip_path)
 
-    def extract(self, archive_path: str | os.PathLike[str], output_dir: str | os.PathLike[str]) -> ExtractResult:
+    def list(self, archive_path: str | os.PathLike[str], password: str | None = None) -> ArchiveListing:
+        archive = Path(archive_path)
+        if not archive.is_file():
+            raise ArchiveNotFound()
+
+        completed = self._run(["l", "-slt", *_password_args(password), str(archive)])
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            raise _map_sevenzip_error(detail)
+
+        return ArchiveListing(
+            archive_path=archive.resolve(),
+            sevenzip_path=self.sevenzip_path,
+            entries=tuple(_parse_slt_entries(completed.stdout)),
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
+
+    def test(self, archive_path: str | os.PathLike[str], password: str | None = None) -> TestResult:
+        archive = Path(archive_path)
+        if not archive.is_file():
+            raise ArchiveNotFound()
+
+        completed = self._run(["t", *_password_args(password), str(archive)])
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            raise _map_sevenzip_error(detail)
+
+        return TestResult(
+            archive_path=archive.resolve(),
+            sevenzip_path=self.sevenzip_path,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
+
+    def extract(
+        self,
+        archive_path: str | os.PathLike[str],
+        output_dir: str | os.PathLike[str],
+        password: str | None = None,
+        cancel_event: threading.Event | None = None,
+        overwrite_policy: OverwritePolicy = "skip",
+    ) -> ExtractResult:
+        final_result: ExtractResult | None = None
+        for event in self.extract_with_progress(
+            archive_path,
+            output_dir,
+            password=password,
+            cancel_event=cancel_event,
+            overwrite_policy=overwrite_policy,
+        ):
+            if event.kind == "completed":
+                final_result = event.result
+
+        if final_result is None:
+            raise UnknownArchiveError()
+        return final_result
+
+    def extract_with_progress(
+        self,
+        archive_path: str | os.PathLike[str],
+        output_dir: str | os.PathLike[str],
+        password: str | None = None,
+        cancel_event: threading.Event | None = None,
+        overwrite_policy: OverwritePolicy = "skip",
+    ) -> Iterator[ProgressEvent]:
         archive = Path(archive_path)
         output = Path(output_dir)
 
@@ -151,17 +260,92 @@ class SevenZipCliEngine:
         except OSError as exc:
             raise OutputPermissionDenied() from exc
 
+        listing = self.list(archive, password=password)
+        _validate_archive_paths(listing.entries)
+
         command = [
-            str(self.sevenzip_path),
             "x",
+            *_password_args(password),
             str(archive),
             f"-o{output}",
-            "-aos",
+            _overwrite_arg(overwrite_policy),
+            "-bsp1",
+            "-bso1",
         ]
 
+        yield ProgressEvent(kind="started", percent=0, message=str(archive))
+
         try:
-            completed = subprocess.run(
-                command,
+            process = subprocess.Popen(
+                [str(self.sevenzip_path), *command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+                bufsize=1,
+            )
+        except OSError as exc:
+            raise UnknownArchiveError() from exc
+
+        output_parts: list[str] = []
+        token_parts: list[str] = []
+        last_percent: int | None = None
+
+        try:
+            if process.stdout is not None:
+                while True:
+                    if cancel_event is not None and cancel_event.is_set():
+                        _terminate_process(process)
+                        yield ProgressEvent(kind="cancelled", message="cancelled")
+                        raise ArchiveCancelled()
+
+                    char = process.stdout.read(1)
+                    if char == "":
+                        if process.poll() is not None:
+                            break
+                        time.sleep(0.01)
+                        continue
+
+                    output_parts.append(char)
+                    token_parts.append(char)
+                    if char in ("\r", "\n"):
+                        token = "".join(token_parts)
+                        token_parts = []
+                        event = _parse_progress_token(token, last_percent)
+                        if event is not None:
+                            last_percent = event.percent
+                            yield event
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
+
+        if token_parts:
+            event = _parse_progress_token("".join(token_parts), last_percent)
+            if event is not None:
+                last_percent = event.percent
+                yield event
+
+        returncode = process.wait()
+        stdout = "".join(output_parts)
+
+        if returncode != 0:
+            detail = stdout.strip()
+            yield ProgressEvent(kind="failed", message=detail)
+            raise _map_sevenzip_error(detail)
+
+        result = ExtractResult(
+            archive_path=archive.resolve(),
+            output_dir=output.resolve(),
+            sevenzip_path=self.sevenzip_path,
+            stdout=stdout,
+            stderr="",
+        )
+        yield ProgressEvent(kind="completed", percent=100, result=result)
+
+    def _run(self, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                [str(self.sevenzip_path), *arguments],
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -170,17 +354,125 @@ class SevenZipCliEngine:
         except OSError as exc:
             raise UnknownArchiveError() from exc
 
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "").strip()
-            raise _map_sevenzip_error(detail)
 
-        return ExtractResult(
-            archive_path=archive.resolve(),
-            output_dir=output.resolve(),
-            sevenzip_path=self.sevenzip_path,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
-        )
+def _parse_slt_entries(output: str) -> list[ArchiveEntry]:
+    entries: list[ArchiveEntry] = []
+    current: dict[str, str] = {}
+
+    for line in output.splitlines():
+        if not line.strip():
+            if current:
+                entry = _entry_from_slt_record(current)
+                if entry is not None:
+                    entries.append(entry)
+                current = {}
+            continue
+
+        if " = " not in line:
+            continue
+
+        key, value = line.split(" = ", 1)
+        current[key.strip()] = value.strip()
+
+    if current:
+        entry = _entry_from_slt_record(current)
+        if entry is not None:
+            entries.append(entry)
+
+    return entries
+
+
+def _terminate_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2)
+
+
+def _entry_from_slt_record(record: dict[str, str]) -> ArchiveEntry | None:
+    path = record.get("Path")
+    if not path or record.get("Type"):
+        return None
+
+    attributes = record.get("Attributes")
+    folder_value = record.get("Folder", "").strip()
+    is_directory = folder_value == "+" or bool(attributes and "D" in attributes)
+
+    return ArchiveEntry(
+        path=path.replace("\\", "/"),
+        size=_parse_int(record.get("Size")),
+        modified=record.get("Modified"),
+        attributes=attributes,
+        is_directory=is_directory,
+    )
+
+
+def _parse_int(value: str | None) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _parse_progress_token(token: str, last_percent: int | None) -> ProgressEvent | None:
+    match = re.search(r"(\d{1,3})%", token)
+    if not match:
+        return None
+
+    percent = max(0, min(100, int(match.group(1))))
+    if percent == last_percent:
+        return None
+
+    current_file = _parse_current_file(token)
+    return ProgressEvent(kind="progress", percent=percent, current_file=current_file)
+
+
+def _parse_current_file(token: str) -> str | None:
+    cleaned = token.replace("\r", "").replace("\n", "").strip()
+    for prefix in ("Extracting", "Testing"):
+        if cleaned.startswith(prefix):
+            value = cleaned.removeprefix(prefix).strip()
+            return value or None
+    return None
+
+
+def _password_args(password: str | None) -> list[str]:
+    return [f"-p{password}"] if password else []
+
+
+def _overwrite_arg(policy: OverwritePolicy) -> str:
+    if policy == "skip":
+        return "-aos"
+    if policy == "overwrite":
+        return "-aoa"
+    if policy == "rename":
+        return "-aou"
+    raise ValueError(f"Unsupported overwrite policy: {policy}")
+
+
+def _validate_archive_paths(entries: tuple[ArchiveEntry, ...]) -> None:
+    for entry in entries:
+        if not _is_safe_archive_path(entry.path):
+            raise PathTraversalBlocked()
+
+
+def _is_safe_archive_path(path: str) -> bool:
+    normalized = path.replace("\\", "/")
+    pure = Path(normalized)
+
+    if pure.is_absolute():
+        return False
+    if len(normalized) >= 2 and normalized[1] == ":":
+        return False
+
+    return all(part not in ("", ".", "..") for part in normalized.split("/"))
 
 
 def _map_sevenzip_error(output: str) -> ArchiveError:

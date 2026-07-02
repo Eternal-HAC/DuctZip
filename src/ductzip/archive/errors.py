@@ -19,6 +19,14 @@ class OutputPermissionDenied(ArchiveError):
     user_message = "没有写入目标目录的权限。"
 
 
+class PathTraversalBlocked(ArchiveError):
+    user_message = "已阻止不安全的压缩包路径。"
+
+
+class ArchiveCancelled(ArchiveError):
+    user_message = "解压任务已取消。"
+
+
 class UnsupportedFormat(ArchiveError):
     user_message = "暂不支持该压缩包格式。"
 

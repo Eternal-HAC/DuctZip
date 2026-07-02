@@ -1,12 +1,14 @@
 # DuctZip
 
-DuctZip is a lightweight Windows archive extraction tool. The current version is a v0.1 CLI prototype that focuses on one thing: reliably finding a local 7-Zip backend, extracting archives, and returning clear user-facing results.
+DuctZip is a lightweight Windows archive extraction tool. The current version is a v0.2 CLI and archive-core prototype focused on reliably finding a local 7-Zip backend, inspecting archives, extracting files, and returning clear user-facing results.
 
 The project is intentionally scoped as an engineering prototype for a future desktop extractor. It documents product research, architecture, roadmap decisions, and test coverage so the repository can be reviewed as a maintainable open-source project rather than a one-off script.
 
 ## Features
 
 - `ductzip extract` command for extracting an archive into a target directory.
+- `ductzip list` command for listing archive entries.
+- `ductzip test` command for archive integrity checks.
 - `ductzip doctor` command for checking whether a usable 7-Zip backend is available.
 - 7-Zip discovery through:
   - explicit `--sevenzip` path
@@ -17,6 +19,11 @@ The project is intentionally scoped as an engineering prototype for a future des
   - `PATH`
 - ZIP, 7z, and RAR extraction verified with real 7-Zip integration tests.
 - Chinese and space-containing paths covered by tests.
+- Password-protected 7z extraction covered by tests.
+- Path traversal entries are blocked before extraction.
+- Extraction can emit structured lifecycle and progress events for future GUI use.
+- Extraction can be cancelled through a core-layer cancellation signal for future GUI use.
+- Existing files are handled through explicit overwrite policies: `skip`, `overwrite`, or `rename`.
 - Basic error mapping for missing archives, missing 7-Zip, corrupted archives, unsupported formats, password errors, and permission errors.
 
 ## Not Yet Implemented
@@ -59,6 +66,38 @@ $env:PYTHONPATH = "src"
 python -m ductzip extract "archive.zip" --output "output-dir"
 ```
 
+List archive entries:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m ductzip list "archive.zip"
+```
+
+Test archive integrity:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m ductzip test "archive.zip"
+```
+
+Extract a password-protected archive:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m ductzip extract "secret.7z" --output "output-dir" --password-prompt
+```
+
+Choose how existing files are handled:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m ductzip extract "archive.zip" --output "output-dir" --overwrite-policy skip
+python -m ductzip extract "archive.zip" --output "output-dir" --overwrite-policy overwrite
+python -m ductzip extract "archive.zip" --output "output-dir" --overwrite-policy rename
+```
+
+The default policy is `skip`.
+
 Use a specific 7-Zip backend:
 
 ```powershell
@@ -72,6 +111,8 @@ Print diagnostic details during extraction:
 $env:PYTHONPATH = "src"
 python -m ductzip extract "archive.zip" --output "output-dir" --verbose
 ```
+
+`--verbose` prints backend details and progress percentages when 7-Zip emits them.
 
 ## Tests
 

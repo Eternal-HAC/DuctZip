@@ -1,25 +1,42 @@
 from .errors import (
+    ArchiveCancelled,
     ArchiveError,
     ArchiveNotFound,
     CorruptedArchive,
     OutputPermissionDenied,
+    PathTraversalBlocked,
     PasswordRequired,
     SevenZipMissing,
     UnsupportedFormat,
     UnknownArchiveError,
     WrongPassword,
 )
-from .sevenzip import ExtractResult, SevenZipCliEngine, find_sevenzip, get_sevenzip_version
+from .sevenzip import (
+    ArchiveEntry,
+    ArchiveListing,
+    ExtractResult,
+    ProgressEvent,
+    SevenZipCliEngine,
+    TestResult,
+    find_sevenzip,
+    get_sevenzip_version,
+)
 
 __all__ = [
+    "ArchiveCancelled",
     "ArchiveError",
+    "ArchiveEntry",
+    "ArchiveListing",
     "ArchiveNotFound",
     "CorruptedArchive",
     "ExtractResult",
     "OutputPermissionDenied",
+    "PathTraversalBlocked",
     "PasswordRequired",
+    "ProgressEvent",
     "SevenZipCliEngine",
     "SevenZipMissing",
+    "TestResult",
     "UnsupportedFormat",
     "UnknownArchiveError",
     "WrongPassword",
