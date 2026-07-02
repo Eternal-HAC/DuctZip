@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Local archive samples and extracted outputs.
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+output/
+out/
+tmp/
+
+# Future bundled third-party binaries should be added deliberately with notices.
+vendor/
