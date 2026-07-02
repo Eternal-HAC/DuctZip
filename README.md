@@ -1,6 +1,6 @@
 # DuctZip
 
-DuctZip is a lightweight Windows archive extraction tool. The current version is a v0.2 CLI and archive-core prototype focused on reliably finding a local 7-Zip backend, inspecting archives, extracting files, and returning clear user-facing results.
+DuctZip is a lightweight Windows archive extraction tool. The current version is a v0.3 CLI, archive-core, and PySide6 GUI prototype focused on reliably finding a local 7-Zip backend, inspecting archives, extracting files, and returning clear user-facing results.
 
 The project is intentionally scoped as an engineering prototype for a future desktop extractor. It documents product research, architecture, roadmap decisions, and test coverage so the repository can be reviewed as a maintainable open-source project rather than a one-off script.
 
@@ -10,6 +10,7 @@ The project is intentionally scoped as an engineering prototype for a future des
 - `ductzip list` command for listing archive entries.
 - `ductzip test` command for archive integrity checks.
 - `ductzip doctor` command for checking whether a usable 7-Zip backend is available.
+- Optional PySide6 GUI prototype with archive selection, drag-and-drop, output directory selection, archive preview, password input, progress display, cancellation, overwrite policy selection, and an open-output-folder action after extraction.
 - 7-Zip discovery through:
   - explicit `--sevenzip` path
   - `DUCTZIP_7Z_PATH`
@@ -28,7 +29,6 @@ The project is intentionally scoped as an engineering prototype for a future des
 
 ## Not Yet Implemented
 
-- GUI.
 - Compression.
 - Batch extraction.
 - Smart Extraction.
@@ -40,7 +40,7 @@ The project is intentionally scoped as an engineering prototype for a future des
 - Python 3.11+
 - Standard-library CLI and test tooling
 - 7-Zip CLI backend (`7z.exe` or `7zz.exe`)
-- Planned GUI stack: PySide6
+- Optional GUI stack: PySide6
 
 ## Requirements
 
@@ -49,6 +49,12 @@ The project is intentionally scoped as an engineering prototype for a future des
 - 7-Zip installed, or a standalone `7z.exe` / `7zz.exe`.
 
 The prototype can find 7-Zip from common install locations and Windows registry entries. If discovery fails, pass the backend path manually.
+
+Install GUI dependencies:
+
+```powershell
+python -m pip install -e .[gui]
+```
 
 ## Usage
 
@@ -98,6 +104,15 @@ python -m ductzip extract "archive.zip" --output "output-dir" --overwrite-policy
 
 The default policy is `skip`.
 
+Launch the GUI prototype:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m ductzip.gui
+```
+
+The GUI supports archive preview and password input. If a preview fails because the archive requires a password, enter the password and reload by leaving the password field.
+
 Use a specific 7-Zip backend:
 
 ```powershell
@@ -123,6 +138,12 @@ python -m unittest discover -s tests -v
 ```
 
 The test suite includes fake-backend unit tests and real 7-Zip integration tests. Real-backend tests are skipped when 7-Zip is unavailable.
+
+For GUI tests in headless environments:
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+```
 
 ## Project Highlights
 

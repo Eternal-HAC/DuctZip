@@ -1,0 +1,2 @@
+"""DuctZip GUI package."""
+
