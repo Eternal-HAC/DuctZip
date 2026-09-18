@@ -19,6 +19,10 @@ class OutputPermissionDenied(ArchiveError):
     user_message = "没有写入目标目录的权限。"
 
 
+class OutputConflictBlocked(ArchiveError):
+    user_message = "目标目录存在冲突，已取消解压。"
+
+
 class PathTraversalBlocked(ArchiveError):
     user_message = "已阻止不安全的压缩包路径。"
 

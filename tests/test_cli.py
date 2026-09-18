@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 from pathlib import Path
 import os
 import stat
@@ -8,6 +10,7 @@ import tempfile
 import threading
 import unittest
 import zipfile
+from unittest.mock import patch
 
 from ductzip.archive import (
     ArchiveCancelled,
@@ -422,6 +425,87 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(code, 0)
 
+    def test_cli_extract_without_smart_output_keeps_requested_output(self) -> None:
+        try:
+            find_sevenzip()
+        except SevenZipMissing:
+            self.skipTest("7-Zip backend is not available")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "photos.zip"
+            requested = root / "photos"
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("photos/a.txt", "hello")
+
+            code = main(["extract", str(archive), "--output", str(requested)])
+
+            self.assertEqual(code, 0)
+            self.assertEqual((requested / "photos" / "a.txt").read_text(encoding="utf-8"), "hello")
+
+    def test_cli_extract_smart_output_single_top_level_folder(self) -> None:
+        try:
+            find_sevenzip()
+        except SevenZipMissing:
+            self.skipTest("7-Zip backend is not available")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "photos.zip"
+            requested = root / "photos"
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("photos/a.txt", "hello smart")
+
+            code = main(["extract", str(archive), "--output", str(requested), "--smart-output"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual((root / "photos" / "a.txt").read_text(encoding="utf-8"), "hello smart")
+            self.assertFalse((root / "photos" / "photos").exists())
+
+    def test_cli_extract_smart_output_multiple_top_level_entries(self) -> None:
+        try:
+            find_sevenzip()
+        except SevenZipMissing:
+            self.skipTest("7-Zip backend is not available")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "photos.zip"
+            requested = root / "out"
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("a.txt", "a")
+                zf.writestr("b.txt", "b")
+
+            code = main(["extract", str(archive), "--output", str(requested), "--smart-output"])
+
+            self.assertEqual(code, 0)
+            self.assertEqual((requested / "photos" / "a.txt").read_text(encoding="utf-8"), "a")
+            self.assertEqual((requested / "photos" / "b.txt").read_text(encoding="utf-8"), "b")
+
+    def test_cli_extract_conflict_strategy_cancel_returns_failure(self) -> None:
+        try:
+            find_sevenzip()
+        except SevenZipMissing:
+            self.skipTest("7-Zip backend is not available")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "conflict.zip"
+            output = root / "output"
+            output.mkdir()
+            (output / "same.txt").write_text("old", encoding="utf-8")
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("same.txt", "new")
+
+            code = main(["extract", str(archive), "--output", str(output), "--conflict-strategy", "cancel"])
+
+            self.assertEqual(code, 1)
+            self.assertEqual((output / "same.txt").read_text(encoding="utf-8"), "old")
+
     def test_cli_test_success(self) -> None:
         try:
             find_sevenzip()
@@ -458,6 +542,191 @@ class ProgressParsingTests(unittest.TestCase):
 
     def test_skips_duplicate_percent(self) -> None:
         self.assertIsNone(_parse_progress_token(" 42%\r", 42))
+
+
+def make_logging_fake_7z(directory: Path, fail_substr: str | None = None) -> Path:
+    """Fake 7z that appends every invocation to calls.log and optionally
+    fails (as a corrupt archive) when the command line contains a substring."""
+    script = directory / "fake7z-batch.cmd"
+    lines = ["@echo off", f'echo %*>>"{directory}\\calls.log"']
+    if fail_substr is not None:
+        lines += [
+            f'echo %* | findstr /C:"{fail_substr}" >nul',
+            "if %errorlevel%==0 (",
+            "echo Can not open the file as archive",
+            "exit /b 2",
+            ")",
+        ]
+    lines += ["echo fake 7z ok", "exit /b 0"]
+    script.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+    return script
+
+
+def make_flaky_fake_7z(directory: Path) -> Path:
+    """Fake 7z whose first invocation fails, later ones succeed."""
+    counter = directory / "count.txt"
+    script = directory / "fake7z-flaky.cmd"
+    script.write_text(
+        "@echo off\r\n"
+        "set n=0\r\n"
+        f'if exist "{counter}" set /p n=<"{counter}"\r\n'
+        "set /a n+=1\r\n"
+        f'(echo %n%)>"{counter}"\r\n'
+        "if %n% lss 2 (\r\n"
+        "echo Can not open the file as archive\r\n"
+        "exit /b 2\r\n"
+        ")\r\n"
+        "echo fake 7z ok\r\n"
+        "exit /b 0\r\n",
+        encoding="utf-8",
+    )
+    return script
+
+
+class BatchCliTests(unittest.TestCase):
+    def run_batch(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_batch_mixed_success_and_failure_exit_code_and_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_logging_fake_7z(root, fail_substr="broken")
+            good_a = root / "测试 a.zip"
+            broken = root / "broken.zip"
+            good_b = root / "b archive.zip"
+            for archive in (good_a, broken, good_b):
+                archive.write_bytes(b"fake")
+
+            code, out, err = self.run_batch(
+                ["batch-extract", str(good_a), str(broken), str(good_b),
+                 "--output", str(root / "输出 目录"), "--sevenzip", str(fake)]
+            )
+
+            self.assertEqual(code, 1)
+            self.assertIn("[失败] " + str(broken), out)
+            self.assertIn("损坏", out)
+            self.assertIn(f"[完成] {good_a}", out)
+            self.assertIn(f"[完成] {good_b}", out)
+            self.assertIn("失败 1", err)
+
+    def test_batch_processes_in_cli_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_logging_fake_7z(root)
+            first, second, third = root / "1.zip", root / "2.zip", root / "3.zip"
+            for archive in (first, second, third):
+                archive.write_bytes(b"fake")
+
+            code, _, _ = self.run_batch(
+                ["batch-extract", str(third), str(first), str(second),
+                 "--output", str(root / "out"), "--sevenzip", str(fake)]
+            )
+
+            self.assertEqual(code, 0)
+            calls = (root / "calls.log").read_text(encoding="utf-8", errors="replace")
+            positions = [calls.index(name) for name in ("3.zip", "1.zip", "2.zip")]
+            self.assertEqual(positions, sorted(positions))
+            # Every archive was listed for planning and re-validated by the engine.
+            for name in ("1.zip", "2.zip", "3.zip"):
+                self.assertGreaterEqual(calls.count(name), 2)
+
+    def test_batch_retry_recovers_flaky_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_flaky_fake_7z(root)
+            archive = root / "flaky.zip"
+            archive.write_bytes(b"fake")
+
+            code, out, _ = self.run_batch(
+                ["batch-extract", str(archive), "--output", str(root / "out"),
+                 "--sevenzip", str(fake), "--retries", "1"]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn("[完成]", out)
+
+    def test_batch_without_retry_reports_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_flaky_fake_7z(root)
+            archive = root / "flaky.zip"
+            archive.write_bytes(b"fake")
+
+            code, out, _ = self.run_batch(
+                ["batch-extract", str(archive), "--output", str(root / "out"), "--sevenzip", str(fake)]
+            )
+
+            self.assertEqual(code, 1)
+            self.assertIn("[失败]", out)
+
+    def test_batch_smart_output_per_task_final_dirs(self) -> None:
+        try:
+            find_sevenzip()
+        except SevenZipMissing:
+            self.skipTest("7-Zip backend is not available")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            base = root / "输出 目录"
+            photos = root / "photos.zip"
+            loose = root / "loose files.zip"
+            with zipfile.ZipFile(photos, "w") as zf:
+                zf.writestr("photos/a.txt", "hello")
+            with zipfile.ZipFile(loose, "w") as zf:
+                zf.writestr("one.txt", "1")
+                zf.writestr("two.txt", "2")
+
+            code, out, _ = self.run_batch(
+                ["batch-extract", str(photos), str(loose), "--output", str(base)]
+            )
+
+            self.assertEqual(code, 0)
+            # Single top-level dir -> base itself; multi top-level -> base/loose files.
+            self.assertIn(f"[完成] {photos} -> {base.resolve()}", out)
+            self.assertIn(f"[完成] {loose} -> {(base / 'loose files').resolve()}", out)
+
+    def test_batch_missing_backend_returns_failure(self) -> None:
+        code, _, err = self.run_batch(
+            ["batch-extract", "whatever.zip", "--output", "out", "--sevenzip", "Z:/missing/7z.exe"]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("7-Zip", err)
+
+    def test_batch_negative_retries_is_usage_error(self) -> None:
+        code, _, err = self.run_batch(
+            ["batch-extract", "a.zip", "--output", "out", "--retries", "-1"]
+        )
+
+        self.assertEqual(code, 2)
+        self.assertIn("retries", err)
+
+    def test_batch_ctrl_c_cancels_and_returns_130(self) -> None:
+        class _InterruptingQueue:
+            def __init__(self, service):
+                self.cancelled = False
+
+            def add(self, *args, **kwargs):
+                return None
+
+            def run(self):
+                raise KeyboardInterrupt
+                yield  # pragma: no cover - makes this a generator
+
+            def cancel_all(self):
+                self.cancelled = True
+
+            @property
+            def tasks(self):
+                return []
+
+        with patch("ductzip.cli.BatchQueue", _InterruptingQueue):
+            code, _, _ = self.run_batch(["batch-extract", "a.zip", "--output", "out"])
+
+        self.assertEqual(code, 130)
 
 
 if __name__ == "__main__":

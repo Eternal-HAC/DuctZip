@@ -8,8 +8,8 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 from collections.abc import Iterator
+import queue
 from typing import Literal
 
 from .errors import (
@@ -18,8 +18,8 @@ from .errors import (
     ArchiveNotFound,
     CorruptedArchive,
     OutputPermissionDenied,
-    PathTraversalBlocked,
     PasswordRequired,
+    PathTraversalBlocked,
     SevenZipMissing,
     UnknownArchiveError,
     UnsupportedFormat,
@@ -183,12 +183,20 @@ class SevenZipCliEngine:
     def __init__(self, sevenzip_path: str | os.PathLike[str] | None = None):
         self.sevenzip_path = find_sevenzip(sevenzip_path)
 
-    def list(self, archive_path: str | os.PathLike[str], password: str | None = None) -> ArchiveListing:
+    def list(
+        self,
+        archive_path: str | os.PathLike[str],
+        password: str | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> ArchiveListing:
         archive = Path(archive_path)
         if not archive.is_file():
             raise ArchiveNotFound()
 
-        completed = self._run(["l", "-slt", *_password_args(password), str(archive)])
+        completed = self._run(
+            ["l", "-slt", *_password_args(password), str(archive)],
+            cancel_event=cancel_event,
+        )
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "").strip()
             raise _map_sevenzip_error(detail)
@@ -201,12 +209,17 @@ class SevenZipCliEngine:
             stderr=completed.stderr,
         )
 
-    def test(self, archive_path: str | os.PathLike[str], password: str | None = None) -> TestResult:
+    def test(
+        self,
+        archive_path: str | os.PathLike[str],
+        password: str | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> TestResult:
         archive = Path(archive_path)
         if not archive.is_file():
             raise ArchiveNotFound()
 
-        completed = self._run(["t", *_password_args(password), str(archive)])
+        completed = self._run(["t", *_password_args(password), str(archive)], cancel_event=cancel_event)
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "").strip()
             raise _map_sevenzip_error(detail)
@@ -255,13 +268,17 @@ class SevenZipCliEngine:
         if not archive.is_file():
             raise ArchiveNotFound()
 
+        # Path traversal validation is non-negotiable and must be based on the
+        # target archive itself: the engine always takes its own fresh listing
+        # and validates those entries before extracting. No caller-supplied
+        # data can substitute for this safety check.
+        listing = self.list(archive, password=password, cancel_event=cancel_event)
+        _validate_archive_paths(listing.entries)
+
         try:
             output.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise OutputPermissionDenied() from exc
-
-        listing = self.list(archive, password=password)
-        _validate_archive_paths(listing.entries)
 
         command = [
             "x",
@@ -290,34 +307,55 @@ class SevenZipCliEngine:
         output_parts: list[str] = []
         token_parts: list[str] = []
         last_percent: int | None = None
+        char_queue: queue.Queue[str | None] = queue.Queue()
+        reader = threading.Thread(
+            target=_drain_process_output,
+            args=(process, char_queue),
+            name="ductzip-7z-output-reader",
+            daemon=True,
+        )
+        reader.start()
 
+        # The backend's stdout is drained on a dedicated thread so that a
+        # silent backend cannot delay cancellation: the consumer loop below
+        # polls the queue with a short timeout and checks the cancel event on
+        # every iteration. Termination/reaping is guaranteed on every exit
+        # path, including an abandoned (closed) generator.
         try:
-            if process.stdout is not None:
-                while True:
-                    if cancel_event is not None and cancel_event.is_set():
-                        _terminate_process(process)
-                        yield ProgressEvent(kind="cancelled", message="cancelled")
-                        raise ArchiveCancelled()
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    _terminate_process(process)
+                    yield ProgressEvent(kind="cancelled", message="cancelled")
+                    raise ArchiveCancelled()
 
-                    char = process.stdout.read(1)
-                    if char == "":
-                        if process.poll() is not None:
-                            break
-                        time.sleep(0.01)
-                        continue
+                try:
+                    char = char_queue.get(timeout=0.05)
+                except queue.Empty:
+                    if process.poll() is not None and not reader.is_alive():
+                        break
+                    continue
 
-                    output_parts.append(char)
-                    token_parts.append(char)
-                    if char in ("\r", "\n"):
-                        token = "".join(token_parts)
-                        token_parts = []
-                        event = _parse_progress_token(token, last_percent)
-                        if event is not None:
-                            last_percent = event.percent
-                            yield event
+                if char is None:
+                    break
+
+                output_parts.append(char)
+                token_parts.append(char)
+                if char in ("\r", "\n"):
+                    token = "".join(token_parts)
+                    token_parts = []
+                    event = _parse_progress_token(token, last_percent)
+                    if event is not None:
+                        last_percent = event.percent
+                        yield event
         finally:
-            if process.stdout is not None:
-                process.stdout.close()
+            _reap_process(process)
+            # The reader thread owns closing the stream: closing a pipe while
+            # another thread is blocked reading it can block for as long as
+            # any process (including a terminated child's surviving
+            # grandchildren) keeps the pipe's write end open. The reader
+            # closes the stream itself once read() returns, so the worst case
+            # here is a bounded join timeout, never a multi-second stall.
+            reader.join(timeout=1)
 
         if token_parts:
             event = _parse_progress_token("".join(token_parts), last_percent)
@@ -342,17 +380,91 @@ class SevenZipCliEngine:
         )
         yield ProgressEvent(kind="completed", percent=100, result=result)
 
-    def _run(self, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self,
+        arguments: list[str],
+        cancel_event: threading.Event | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        command = [str(self.sevenzip_path), *arguments]
+        if cancel_event is None:
+            try:
+                return subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    check=False,
+                )
+            except OSError as exc:
+                raise UnknownArchiveError() from exc
+
+        # Cancellable variant used by list/test/planning paths: poll with a
+        # short timeout so a silent or hung backend cannot block cancellation.
         try:
-            return subprocess.run(
-                [str(self.sevenzip_path), *arguments],
-                capture_output=True,
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 errors="replace",
-                check=False,
             )
         except OSError as exc:
             raise UnknownArchiveError() from exc
+
+        try:
+            while True:
+                if cancel_event.is_set():
+                    _terminate_process(process)
+                    # Do NOT communicate() here: draining until EOF can block
+                    # for as long as a surviving grandchild keeps the pipe's
+                    # write end open. No thread reads these pipes, so closing
+                    # them directly is safe and immediate.
+                    for stream in (process.stdout, process.stderr):
+                        if stream is not None:
+                            try:
+                                stream.close()
+                            except OSError:
+                                pass
+                    raise ArchiveCancelled()
+                try:
+                    process.wait(timeout=0.05)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            stdout, stderr = process.communicate()
+            return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        finally:
+            _reap_process(process)
+
+
+def _drain_process_output(process: subprocess.Popen[str], char_queue: queue.Queue[str | None]) -> None:
+    """Feed the backend's merged stdout/stderr into ``char_queue`` char by char.
+
+    Runs on a dedicated thread; the ``None`` sentinel marks end of stream so
+    the consumer can distinguish "no data yet" from EOF. This thread also
+    owns closing the stream: it is the only reader, so closing here is safe,
+    whereas closing from the consumer can block while a read is pending.
+    """
+    stream = process.stdout
+    try:
+        if stream is not None:
+            while True:
+                char = stream.read(1)
+                if char == "":
+                    break
+                char_queue.put(char)
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            char_queue.put(None)
+        except Exception:
+            pass
+        if stream is not None:
+            try:
+                stream.close()
+            except OSError:
+                pass
 
 
 def _parse_slt_entries(output: str) -> list[ArchiveEntry]:
@@ -386,12 +498,34 @@ def _terminate_process(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
 
-    process.terminate()
+    try:
+        process.terminate()
+    except OSError:
+        return
+    try:
+        process.wait(timeout=2)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    try:
+        process.kill()
+    except OSError:
+        return
     try:
         process.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=2)
+        pass
+
+
+def _reap_process(process: subprocess.Popen[str]) -> None:
+    """Ensure a backend process is terminated and reaped (no zombies/leaks)."""
+    if process.poll() is None:
+        _terminate_process(process)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def _entry_from_slt_record(record: dict[str, str]) -> ArchiveEntry | None:
@@ -463,6 +597,20 @@ def _validate_archive_paths(entries: tuple[ArchiveEntry, ...]) -> None:
             raise PathTraversalBlocked()
 
 
+_WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CONIN$",
+        "CONOUT$",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
+)
+
+
 def _is_safe_archive_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
     pure = Path(normalized)
@@ -472,7 +620,16 @@ def _is_safe_archive_path(path: str) -> bool:
     if len(normalized) >= 2 and normalized[1] == ":":
         return False
 
-    return all(part not in ("", ".", "..") for part in normalized.split("/"))
+    for part in normalized.split("/"):
+        if part in ("", ".", ".."):
+            return False
+        # Windows reserves device names even with an extension (``NUL.txt``)
+        # and ignores trailing dots/spaces in path components.
+        stem = part.split(".", 1)[0].rstrip(". ").upper()
+        if stem in _WINDOWS_RESERVED_DEVICE_NAMES:
+            return False
+
+    return True
 
 
 def _map_sevenzip_error(output: str) -> ArchiveError:

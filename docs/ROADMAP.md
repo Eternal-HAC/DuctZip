@@ -1,6 +1,6 @@
 # DuctZip Roadmap
 
-更新时间：2026-07-02
+更新时间：2026-09-19
 
 ## 路线图原则
 
@@ -99,6 +99,8 @@
 
 ## v0.4 Smart Extraction
 
+状态：已完成。
+
 目标：优化默认解压体验，避免文件散落。
 
 完成标准：
@@ -109,16 +111,46 @@
 
 任务：
 
-- [ ] 分析压缩包顶层结构。
-- [ ] 实现同名目录规则。
-- [ ] 实现冲突检测。
-- [ ] 实现合并、重命名、取消选项。
-- [ ] 增加 Smart Extraction 测试。
-- [ ] 在 GUI 中显示最终输出目录。
+- [x] 分析压缩包顶层结构。
+- [x] 实现同名目录规则。
+- [x] 实现冲突检测。
+- [x] 实现合并、重命名、取消选项。
+- [x] 增加 Smart Extraction 测试。
+- [x] 接入 CLI `--smart-output`。
+- [x] 接入 GUI Smart output 开关。
+- [x] 在 GUI 中显示最终输出目录。
+
+## v0.4.1 Smart Output Semantics
+
+状态：已完成。
+
+目标：把 Smart output 规则形式化为无副作用的目录计算，并让 CLI 与 GUI 共享同一编排服务和策略。
+
+完成标准：
+
+- 空列表和单顶层文件解压到指定输出目录。
+- 单顶层目录通常解压到指定输出目录；同名时解压到父目录，避免 `D/D`。
+- 多顶层条目默认解压到按压缩包逻辑名命名的子目录；与输出目录同名时直接用输出目录，避免 `name/name`。
+- 压缩包逻辑名支持常见归档扩展与 `.7z.001`、`.partNN.rar` 等分卷命名。
+- CLI 与 GUI 通过同一个 `ExtractionService` 和 `SmartOutputPolicy` 工作。
+- `SevenZipCliEngine` 不再接收 smart/conflict 策略参数，路径穿越校验不可被绕过。
+- 设计可供 v0.5 批量队列按任务复用，本次不实现队列。
+
+任务：
+
+- [x] 新增 `ductzip.core.smart_output`：`SmartOutputPolicy`、`archive_logical_name`、冲突检测与覆盖策略推导。
+- [x] 新增 `ductzip.core.extraction`：`ExtractionService` 编排 list -> 策略 -> 冲突 -> 引擎解压。
+- [x] 引擎移除 smart/conflict 参数；每次实际解压前基于目标压缩包自行 list 并保留强制路径校验，调用方 listing 不参与安全校验。
+- [x] CLI 接入 `ExtractionService`。
+- [x] GUI 默认输出改为压缩包父目录，Final output 显示策略结果，解压走 `ExtractionService`。
+- [x] 增加策略、逻辑名、编排、CLI、GUI 与安全测试。
+- [x] 稳定化：取消秒级响应与全路径子进程回收、list/test/plan 可取消、GUI 预览长寿命线程 + 代际丢弃、取消恰好一次、worker 异常可见、窗口关闭有界回收、Windows 保留设备名拦截、链接/Junction 不支持声明（详见 CHANGELOG Unreleased 与 DESIGN_DECISIONS DD-010~DD-012）。
 
 ## v0.5 批量解压
 
 目标：支持多个压缩包顺序或并发解压。
+
+状态：已完成（队列核心 DD-013 + CLI/GUI 工作流 DD-014；并发固定为 1）。
 
 完成标准：
 
@@ -128,12 +160,13 @@
 
 任务：
 
-- [ ] 实现任务队列。
-- [ ] 支持批量添加压缩包。
-- [ ] 支持每个任务独立状态。
-- [ ] 支持失败重试。
-- [ ] 支持全部取消。
-- [ ] 支持批量解压日志。
+- [x] 实现任务队列（`ductzip.core.queue`：状态机、顺序执行、结构化批量日志）。
+- [x] 支持批量添加压缩包（CLI `batch-extract` 多压缩包参数 / GUI 多选拖入）。
+- [x] 支持每个任务独立状态。
+- [x] 支持失败重试。
+- [x] 支持全部取消。
+- [x] 支持批量解压日志（状态迁移持久化，进度实时下发）。
+- [x] GUI 任务列表、逐任务进度/错误/最终目录、移除与取消按钮。
 
 ## v0.6 Windows 集成
 
@@ -193,8 +226,8 @@
 - [ ] 完成用户手册。
 - [ ] 完成安装说明。
 - [ ] 完成卸载说明。
-- [ ] 完成 CHANGELOG。
-- [ ] 完成基础自动化测试。
+- [x] 完成 CHANGELOG。
+- [x] 完成基础自动化测试（144 项：单元、队列、CLI、GUI offscreen、引擎生命周期；真实后端集成测试在检测到 7-Zip 时执行）。
 - [ ] 完成发布包。
 
 ## v1.x 后续方向
