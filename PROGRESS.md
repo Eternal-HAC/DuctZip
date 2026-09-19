@@ -2,14 +2,16 @@
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 
-## Phase 6: v0.7 packaging and distribution — PARTIAL (uncommitted at time of writing)
+## Phase 6: v0.7 packaging and distribution — PARTIAL (committed `86f47c3`)
 
 **Timestamp:** 2026-09-19
-**Branch:** `main`, `HEAD` = `bd16c6a` + this work unit (to be checkpointed)
+**Branch:** `main`, `HEAD` = `86f47c3` (local checkpoint, not pushed)
 **Gate for §10.2 (all resolved 2026-09-19, see Phase 5 continued):** #2 portable zip,
 #6 unsigned RC allowed, #8 recorded-limitation deferrals allowed. **Item #3 7-Zip bundling:
-STILL GATED** — this unit builds everything that cannot prejudice it; the
-source/version/checksum/license approval package is presented with the next question.
+APPROVED 2026-09-19 (user picked "完整控制台后端（推荐）"):** bundle 7z.exe + 7z.dll
+extracted from the official Authenticode-signed installer `7z2603-x64.exe` (7-Zip 26.03,
+2026-09-03) downloaded only from https://www.7-zip.org/a/; verify TLS + Authenticode;
+record measured SHA-256 in the build manifest. RAR support preserved; DD-008 amended.
 
 ### Non-prejudicial Phase 6 work completed (2026-09-19)
 
@@ -50,13 +52,34 @@ source/version/checksum/license approval package is presented with the next ques
    exits 0. `reg query` evidence: verb = `"C:\tmp\dz-portable-smoke\ductzip.cmd" shell
    extract-here "%1"`, open = `"C:\tmp\dz-portable-smoke\DuctZip GUI.cmd" "%1"`.
 
+### Bundling execution — BLOCKED on network/permission (2026-09-19)
+
+- Approval recorded above (full console backend from signed installer).
+- Download attempt: `https://www.7-zip.org/a/7z2603-x64.exe` returns **302 →
+  github.com**, which is unreachable from this machine (connection timeout).
+  The official mirror (sparanoid.com/lab/7z) download was **denied by the
+  permission classifier** ("Code from External").
+- **Next smallest step requires the user:** place `7z2603-x64.exe` at
+  `C:\tmp\7z2603-x64.exe` (browser download from https://www.7-zip.org/download.html
+  is fine — it ultimately serves the same file), or grant download permission.
+  Then: verify Authenticode + SHA-256 → extract 7z.exe/7z.dll/license.txt to
+  `vendor/7zip/` → rebuild → smoke → commit.
+
+### Independent work completed while bundling is blocked (2026-09-19)
+
+- NEW `tests/test_discovery.py` (6 tests): explicit `--sevenzip` wins and raises
+  without fallback; `DUCTZIP_7Z_PATH` beats vendor; `vendor/7zip/7z.exe` beats
+  install dirs; install-dir fallback; clean `SevenZipMissing` — proving bundled
+  discovery does not break overrides or system fallback (Phase 6 requirement).
+- NEW `docs/RELEASE_CHECKLIST.md` (ROADMAP v0.7 发布检查清单 item closed).
+- Full suite: **230 tests, 0 failures — OK** (was 224).
+
 ### Still open in Phase 6
 
-- 7-Zip bundling (§10.2 #3): approval package (source/version/checksum/license +
-  RAR-format caveat) presented for explicit approval; only then download/pin/vendor.
+- 7-Zip bundling execution (blocked as above; approval itself is recorded).
 - Clean-machine verification beyond isolated-dir smoke (no second physical machine;
   final claim must be scoped to evidence actually gathered).
-- Release checklist doc (`docs/RELEASE_CHECKLIST.md`) and v1.0 version bump — Phase 7.
+- v1.0 version bump — Phase 7.
 
 ---
 
