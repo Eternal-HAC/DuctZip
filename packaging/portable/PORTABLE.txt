@@ -1,0 +1,45 @@
+DuctZip portable package
+=========================
+
+What this is
+------------
+A no-install distribution of DuctZip: the CLI, the optional GUI, and the
+Windows Explorer integration commands, plus documentation and license.
+
+Requirements
+------------
+- Windows 10/11.
+- Python 3.11 or newer on PATH (python / pythonw).
+- 7-Zip installed, or a standalone 7z.exe / 7zz.exe reachable through the
+  normal discovery order (explicit flag > DUCTZIP_7Z_PATH > bundled copy if
+  present > standard install locations > registry > PATH).
+- GUI only: PySide6 in the active Python environment
+  (python -m pip install PySide6).
+
+How to run
+----------
+- CLI:        ductzip.cmd doctor
+              ductzip.cmd extract "archive.zip" --output "out dir"
+- GUI:        DuctZip GUI.cmd
+- Explorer:   ductzip.cmd shell register     (current user, no elevation)
+              ductzip.cmd shell unregister   (exact reversal)
+
+When registered through these launchers, the Explorer context-menu verbs
+run via ductzip.cmd, so a console window accompanies each verb invocation
+(the launcher is a batch script). No pip install is needed for the verbs
+to find the package.
+
+Settings and data
+-----------------
+The launchers keep DuctZip's settings file beside this file
+(settings\settings.json) so the package stays portable. Set
+DUCTZIP_SETTINGS_PATH before launching to use another location.
+
+Extraction outputs, logs, and the registry keys created by
+"shell register" are the only things DuctZip writes outside this folder.
+
+7-Zip bundling status
+---------------------
+This build does NOT bundle a 7-Zip binary unless a vendor\7zip folder is
+present. Bundling happens only after an explicit approval recorded in the
+repository (LONG_TASK.md section 10.2, item 3); see THIRD_PARTY_NOTICES.md.

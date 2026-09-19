@@ -22,6 +22,12 @@ python -m ductzip shell unregister   # 卸载（未注册时也是安全的空�
 
 `register` 记录启动器绝对路径（优先 `pythonw.exe`，无控制台窗口）与版本、时间戳；重复执行结果是幂等的。如果 Python 移动或删除导致记录的 launcher 失效，`status` 会报告 "已失效"，重新执行一次 `register` 即可修复。
 
+`register` 启动器选择顺序：
+
+1. 显式 `--launcher <路径>`（最高优先级，可用于记录任何可执行启动器）。
+2. 便携模式自动检测：当 `DUCTZIP_PORTABLE_ROOT` 环境变量存在且指向的目录含 `ductzip.cmd` 时（即通过便携包内的 launcher 调用注册），记录 `ductzip.cmd` / `DuctZip GUI.cmd` 为启动器——Explorer 调用经 launcher 中转，自动带上包内 `PYTHONPATH` 与设置路径，**无需 pip 安装**。此模式下右键动词会伴随一个控制台窗口（launcher 是批处理脚本）。
+3. 默认：当前 Python 解释器（`pythonw.exe` 优先）。此模式要求 `ductzip` 包可被该解释器导入（已 pip 安装或环境已配置）。
+
 ## 注册表布局（全部在 HKEY_CURRENT_USER 下）
 
 - `Software\DuctZip`：元数据（RegisteredExe / Version / RegisteredAt）。
@@ -31,12 +37,14 @@ python -m ductzip shell unregister   # 卸载（未注册时也是安全的空�
 
 ## 调用协议（稳定契约）
 
-右键菜单命令行为：
+右键菜单命令行为（解释器启动器形态）：
 
 ```
-"<launcher>" -m ductzip shell extract-here "%1"
-"<launcher>" -m ductzip shell extract-to "%1"
+"<launcher>" shell extract-here "%1"
+"<launcher>" shell extract-to "%1"
 ```
+
+历史上动词命令包含 `-m ductzip` 模块选择器（v0.6 形态 `"<pythonw>" -m ductzip shell <verb> "%1"`）；v0.7 起选择器由启动器自行携带，同一命令形态同时适用于解释器启动器与便携 `.cmd` 启动器。ProgID 打开命令（GUI）：解释器启动器为 `"<launcher>" -m ductzip.gui "%1"`，便携 `.cmd` 启动器为 `"<GUI launcher>" "%1"`（模块选择器已内嵌）。
 
 - `%1` 由 Explorer 替换为所选压缩包路径，带引号，空格与 Unicode（中文）路径安全。
 - `extract-here`：每个压缩包解压到它自己的父目录（Smart output 语义，松散文件不另套目录）。

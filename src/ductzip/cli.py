@@ -142,10 +142,14 @@ def build_parser() -> argparse.ArgumentParser:
             help="Retry each failed task up to N additional times.",
         )
         verb_parser.add_argument("--verbose", action="store_true", help="Print per-task diagnostic details.")
-    shell_subparsers.add_parser("register", help="Register Explorer context-menu verbs for the current user (HKCU).")
+    register_parser = shell_subparsers.add_parser("register", help="Register Explorer context-menu verbs for the current user (HKCU).")
+    register_parser.add_argument(
+        "--launcher",
+        default=None,
+        help="Launcher to record in the verb commands (default: the portable launchers when registering from a portable copy, otherwise the current Python interpreter).",
+    )
     shell_subparsers.add_parser("unregister", help="Remove all DuctZip Explorer registration (HKCU).")
     shell_subparsers.add_parser("status", help="Show Explorer registration state and launcher health.")
-
     list_parser = subparsers.add_parser("list", help="List archive entries.")
     list_parser.add_argument("archive_path", help="Path to the archive file.")
     list_parser.add_argument("--sevenzip", help="Path to 7z.exe or 7zz.exe.")
@@ -351,7 +355,8 @@ def _run_shell_command(args: argparse.Namespace) -> int:
     archives in one invocation.
     """
     if args.shell_command == "register":
-        report = shell_integration.register()
+        launcher = Path(args.launcher) if args.launcher else None
+        report = shell_integration.register(launcher=launcher)
         print(f"已注册（当前用户）：{report.launcher}")
         print(f"覆盖扩展名：{' '.join(report.extensions)}")
         print("卸载：python -m ductzip shell unregister")

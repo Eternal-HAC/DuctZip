@@ -2,9 +2,68 @@
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 
-## Phase 5 (continued): MOTW propagation — DONE (uncommitted at time of writing)
+## Phase 6: v0.7 packaging and distribution — PARTIAL (uncommitted at time of writing)
 
 **Timestamp:** 2026-09-19
+**Branch:** `main`, `HEAD` = `bd16c6a` + this work unit (to be checkpointed)
+**Gate for §10.2 (all resolved 2026-09-19, see Phase 5 continued):** #2 portable zip,
+#6 unsigned RC allowed, #8 recorded-limitation deferrals allowed. **Item #3 7-Zip bundling:
+STILL GATED** — this unit builds everything that cannot prejudice it; the
+source/version/checksum/license approval package is presented with the next question.
+
+### Non-prejudicial Phase 6 work completed (2026-09-19)
+
+- NEW `scripts/build_portable.py` (stdlib-only, repeatable, zero downloads):
+  `python scripts/build_portable.py` → `dist/DuctZip-0.7.0-portable.zip` (+ `.sha256`,
+  `build-manifest.json` with Python/platform/git-commit inputs, bundled_7zip flag,
+  per-file SHA-256). Refuses to include `__pycache__`/`.pyc`/`tests`; requires
+  LICENSE/README/CHANGELOG/THIRD_PARTY_NOTICES + launchers to exist. Includes
+  `vendor/7zip` only if already on disk (never downloads).
+- NEW `packaging/portable/`: `ductzip.cmd` (CLI), `DuctZip GUI.cmd` (GUI via pythonw),
+  `PORTABLE.txt`. Launchers set `PYTHONPATH`+portable settings path and advertise
+  `DUCTZIP_PORTABLE_ROOT`.
+- NEW `THIRD_PARTY_NOTICES.md`: 7-Zip bundling honestly marked not-yet-bundled with
+  approved policy + license obligations; Python/PySide6 referenced (not distributed).
+- Portable-aware Explorer registration (found during clean-copy smoke: registered
+  `pythonw.exe -m ductzip ...` could not import the package without a pip install):
+  - `shell.build_verb_command` drops the `-m ductzip` selector (launcher carries it);
+    new `shell.build_open_command` keeps `-m ductzip.gui` for interpreters, passes the
+    archive alone for `.cmd`/`.bat` launchers.
+  - `shell.resolve_portable_launchers()` reads `DUCTZIP_PORTABLE_ROOT`; `register()`
+    gains `gui_launcher` and auto-picks the portable `.cmd` launchers (explicit
+    `launcher=` still wins).
+  - CLI: `ductzip shell register --launcher <path>`.
+- Tests: +9 (`test_shell_integration` portable env/explicit-launcher/open-command
+  forms; `test_cli` `--launcher` passthrough + default None).
+- Docs: WINDOWS_INTEGRATION (launcher selection order + new command forms + console
+  window note), ROADMAP v0.7 packaging checkbox, CHANGELOG, PROJECT_STATUS, PORTABLE.txt.
+
+### Gate results (this machine, 2026-09-19)
+
+1. Full suite (`PYTHONPATH=src`, `PYTHONDONTWRITEBYTECODE=1`, `QT_QPA_PLATFORM=offscreen`):
+   **224 tests, 0 failures — OK**. Was 215.
+2. `pip check` clean; `pip wheel . --no-deps` → `ductzip-0.7.0-py3-none-any.whl`.
+3. Portable smoke from isolated dir `C:\tmp\dz-portable-smoke` (env PYTHONPATH unset,
+   artifact re-extracted): `doctor` exit 0 (finds `D:\7-Zip\7z.exe`); extract of
+   `让子弹飞 (2026).zip` → `解压 输出` with `--smart-output` exit 0; `settings show` exit 0
+   (portable settings path beside the app); `shell register`/`status`/`unregister`
+   exits 0. `reg query` evidence: verb = `"C:\tmp\dz-portable-smoke\ductzip.cmd" shell
+   extract-here "%1"`, open = `"C:\tmp\dz-portable-smoke\DuctZip GUI.cmd" "%1"`.
+
+### Still open in Phase 6
+
+- 7-Zip bundling (§10.2 #3): approval package (source/version/checksum/license +
+  RAR-format caveat) presented for explicit approval; only then download/pin/vendor.
+- Clean-machine verification beyond isolated-dir smoke (no second physical machine;
+  final claim must be scoped to evidence actually gathered).
+- Release checklist doc (`docs/RELEASE_CHECKLIST.md`) and v1.0 version bump — Phase 7.
+
+---
+
+## Phase 5 (continued): MOTW propagation — DONE (committed `bd16c6a`)
+
+**Timestamp:** 2026-09-19
+**Checkpoint commit:** `bd16c6a feat: v0.7 MOTW propagation (Zone.Identifier ADS), DD-018` — local only, not pushed.
 **Blocking decision RESOLVED (user, 2026-09-19, via AskUserQuestion):** LONG_TASK.md §10.2
 item 5 — **实现传播，v1.0 阻塞项**: copy the archive's `Zone.Identifier` ADS onto extracted
 outputs; silently skip on non-NTFS/no-MOTW; must complete and be tested before v1.0.

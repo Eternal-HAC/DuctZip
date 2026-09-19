@@ -37,6 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 import sys
 
 VERB_EXTRACT_HERE = "extract-here"
@@ -245,9 +246,24 @@ def build_verb_command(verb: str, exe_path: str | Path) -> str:
 
     ``"%1"`` is quoted so paths with spaces or Unicode survive Explorer's
     command-line substitution; the DuctZip CLI parses argv with Python's
-    Unicode-aware Windows argv handling.
+    Unicode-aware Windows argv handling. Works for both interpreter
+    launchers and portable ``.cmd`` launchers (which dispatch to
+    ``python -m ductzip`` themselves).
     """
-    return f'"{Path(exe_path)}" -m ductzip shell {verb} "%1"'
+    return f'"{Path(exe_path)}" shell {verb} "%1"'
+
+
+def build_open_command(exe_path: str | Path) -> str:
+    """The ProgID open command: GUI with an archive argument.
+
+    An interpreter launcher needs the ``-m ductzip.gui`` module selector;
+    a portable ``.cmd``/``.bat`` launcher already embeds it, so the archive
+    path alone is passed through.
+    """
+    launcher = Path(exe_path)
+    if launcher.suffix.lower() in (".cmd", ".bat"):
+        return f'"{launcher}" "%1"'
+    return f'"{launcher}" -m ductzip.gui "%1"'
 
 
 def resolve_launcher() -> Path:
@@ -259,6 +275,24 @@ def resolve_launcher() -> Path:
     executable = Path(sys.executable)
     pythonw = executable.with_name("pythonw.exe")
     return pythonw if pythonw.exists() else executable
+
+
+def resolve_portable_launchers() -> tuple[Path, Path] | None:
+    """Launchers of a portable DuctZip copy, when registered from one.
+
+    The portable launchers set ``DUCTZIP_PORTABLE_ROOT``; when present, the
+    bundled ``ductzip.cmd`` / ``DuctZip GUI.cmd`` become the recorded
+    launchers so Explorer invocations find the package without a pip
+    install. Returns ``(cli_launcher, gui_launcher)`` or ``None``.
+    """
+    root = os.environ.get("DUCTZIP_PORTABLE_ROOT")
+    if not root:
+        return None
+    cli = Path(root) / "ductzip.cmd"
+    gui = Path(root) / "DuctZip GUI.cmd"
+    if cli.is_file():
+        return cli, gui if gui.is_file() else cli
+    return None
 
 
 # ------------------------------------------------------------ register/unregister
@@ -280,10 +314,22 @@ class StatusReport:
     missing_pieces: tuple[str, ...] = field(default_factory=tuple)
 
 
-def register(registry: Registry | None = None, launcher: Path | None = None) -> RegisterReport:
+def register(
+    registry: Registry | None = None,
+    launcher: Path | None = None,
+    gui_launcher: Path | None = None,
+) -> RegisterReport:
     """Write all current-user registration entries. Idempotent by design."""
     registry = registry if registry is not None else WinRegistry()
-    launcher = Path(launcher) if launcher is not None else resolve_launcher()
+    if launcher is None:
+        portable = resolve_portable_launchers()
+        if portable is not None:
+            launcher, portable_gui = portable
+            gui_launcher = gui_launcher if gui_launcher is not None else portable_gui
+        else:
+            launcher = resolve_launcher()
+    launcher = Path(launcher)
+    gui_launcher = Path(gui_launcher) if gui_launcher is not None else launcher
 
     written: list[str] = []
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -295,7 +341,7 @@ def register(registry: Registry | None = None, launcher: Path | None = None) -> 
 
     # ProgID: open -> GUI; the two extraction verbs also live here so the
     # "Open with" entry is itself functional.
-    registry.set_value(_prog_id_open_key(), "", f'"{launcher}" -m ductzip.gui "%1"')
+    registry.set_value(_prog_id_open_key(), "", build_open_command(gui_launcher))
     written.append(_prog_id_open_key())
     for verb in (VERB_EXTRACT_HERE, VERB_EXTRACT_TO):
         registry.set_value(

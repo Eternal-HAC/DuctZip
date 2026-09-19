@@ -812,6 +812,47 @@ class ShellCliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("7-Zip", err)
 
+    def test_shell_register_passes_explicit_launcher(self) -> None:
+        import ductzip.cli as cli_module
+
+        recorded: dict[str, object] = {}
+
+        def fake_register(registry=None, launcher=None, gui_launcher=None):
+            recorded["launcher"] = launcher
+            return cli_module.shell_integration.RegisterReport(
+                launcher=launcher or Path("unused"),
+                keys_written=(),
+            )
+
+        with tempfile.TemporaryDirectory() as temp:
+            launcher = Path(temp) / "custom launcher.cmd"
+            launcher.write_text("rem", encoding="utf-8")
+            with patch.object(cli_module.shell_integration, "register", side_effect=fake_register):
+                code, out, _ = self.run_shell(["shell", "register", "--launcher", str(launcher)])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(recorded["launcher"], launcher)
+        self.assertIn(str(launcher), out)
+
+    def test_shell_register_defaults_launcher_to_none(self) -> None:
+        import ductzip.cli as cli_module
+
+        recorded: dict[str, object] = {}
+
+        def fake_register(registry=None, launcher=None, gui_launcher=None):
+            recorded["launcher"] = launcher
+            return cli_module.shell_integration.RegisterReport(
+                launcher=Path("unused"),
+                keys_written=(),
+            )
+
+        with patch.object(cli_module.shell_integration, "register", side_effect=fake_register):
+            code, _, _ = self.run_shell(["shell", "register"])
+
+        self.assertEqual(code, 0)
+        self.assertIsNone(recorded["launcher"])
+
+
 
 class SettingsCliTests(unittest.TestCase):
     """The ``ductzip settings`` command and CLI-level settings precedence."""

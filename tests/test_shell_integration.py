@@ -12,9 +12,11 @@ from ductzip.shell import (
     VERB_EXTRACT_TO,
     FakeRegistry,
     WinRegistry,
+    build_open_command,
     build_verb_command,
     register,
     resolve_launcher,
+    resolve_portable_launchers,
     status,
     unregister,
 )
@@ -111,13 +113,111 @@ class CommandProtocolTests(unittest.TestCase):
         command = build_verb_command(VERB_EXTRACT_HERE, r"C:\Program Files\Python\pythonw.exe")
         self.assertEqual(
             command,
-            '"C:\\Program Files\\Python\\pythonw.exe" -m ductzip shell extract-here "%1"',
+            '"C:\\Program Files\\Python\\pythonw.exe" shell extract-here "%1"',
         )
+
+    def test_verb_command_works_for_portable_cmd_launcher(self) -> None:
+        command = build_verb_command(VERB_EXTRACT_TO, r"C:\Tools\DuctZip\ductzip.cmd")
+        self.assertEqual(
+            command,
+            '"C:\\Tools\\DuctZip\\ductzip.cmd" shell extract-to "%1"',
+        )
+
+    def test_open_command_includes_module_selector_for_interpreter(self) -> None:
+        command = build_open_command(r"C:\Program Files\Python\pythonw.exe")
+        self.assertEqual(
+            command,
+            '"C:\\Program Files\\Python\\pythonw.exe" -m ductzip.gui "%1"',
+        )
+
+    def test_open_command_passes_archive_only_for_cmd_launcher(self) -> None:
+        command = build_open_command(r"C:\Tools\DuctZip\DuctZip GUI.cmd")
+        self.assertEqual(command, '"C:\\Tools\\DuctZip\\DuctZip GUI.cmd" "%1"')
 
     def test_resolve_launcher_prefers_pythonw(self) -> None:
         launcher = resolve_launcher()
         self.assertTrue(launcher.name.lower() in ("pythonw.exe", "python.exe"))
         self.assertTrue(launcher.is_file())
+
+    def test_resolve_portable_launchers_uses_env_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cli = root / "ductzip.cmd"
+            gui = root / "DuctZip GUI.cmd"
+            cli.write_text("rem cli", encoding="utf-8")
+            gui.write_text("rem gui", encoding="utf-8")
+
+            import os
+            import unittest.mock
+
+            with unittest.mock.patch.dict(os.environ, {"DUCTZIP_PORTABLE_ROOT": str(root)}):
+                resolved = resolve_portable_launchers()
+
+            self.assertIsNotNone(resolved)
+            cli_launcher, gui_launcher = resolved
+            self.assertEqual(cli_launcher, cli)
+            self.assertEqual(gui_launcher, gui)
+
+    def test_resolve_portable_launchers_none_without_env_or_files(self) -> None:
+        import os
+        import unittest.mock
+
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(resolve_portable_launchers())
+
+        with tempfile.TemporaryDirectory() as temp:
+            import os as _os
+            with unittest.mock.patch.dict(_os.environ, {"DUCTZIP_PORTABLE_ROOT": temp}):
+                # Root exists but holds no ductzip.cmd.
+                self.assertIsNone(resolve_portable_launchers())
+
+    def test_register_from_portable_copy_records_cmd_launchers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cli = root / "ductzip.cmd"
+            gui = root / "DuctZip GUI.cmd"
+            cli.write_text("rem cli", encoding="utf-8")
+            gui.write_text("rem gui", encoding="utf-8")
+
+            import os
+            import unittest.mock
+
+            with unittest.mock.patch.dict(os.environ, {"DUCTZIP_PORTABLE_ROOT": str(root)}):
+                registry = FakeRegistry()
+                report = register(registry)
+
+            self.assertEqual(report.launcher, cli)
+            self.assertEqual(
+                registry.get_value(APP_KEY, "RegisteredExe"),
+                str(cli),
+            )
+            open_command = registry.get_value(
+                rf"Software\Classes\{PROG_ID}\shell\open\command", ""
+            )
+            self.assertEqual(open_command, f'"{gui}" "%1"')
+            verb_command = registry.get_value(
+                rf"Software\Classes\SystemFileAssociations\{ARCHIVE_EXTENSIONS[0]}"
+                rf"\shell\DuctZip.ExtractHere\command",
+                "",
+            )
+            self.assertEqual(verb_command, f'"{cli}" shell extract-here "%1"')
+
+    def test_register_explicit_launcher_beats_portable_env(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            explicit = root / "explicit.exe"
+            explicit.write_bytes(b"exe")
+            (root / "ductzip.cmd").write_text("rem cli", encoding="utf-8")
+
+            import os
+            import unittest.mock
+
+            with unittest.mock.patch.dict(os.environ, {"DUCTZIP_PORTABLE_ROOT": str(root)}):
+                registry = FakeRegistry()
+                report = register(registry, launcher=explicit)
+
+            self.assertEqual(report.launcher, explicit)
+            self.assertEqual(registry.get_value(APP_KEY, "RegisteredExe"), str(explicit))
 
 
 class WinRegistryRoundTripTests(unittest.TestCase):

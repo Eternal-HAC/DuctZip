@@ -4,10 +4,13 @@ All notable changes to DuctZip are documented here. The project is pre-1.0; vers
 
 ## [Unreleased]
 
-v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workflows, and v0.4.1 stabilization: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 215 tests pass.
+v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workflows, and v0.4.1 stabilization: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 224 tests pass.
 
 ### Added
 
+- Repeatable portable packaging: `python scripts/build_portable.py` produces `dist/DuctZip-<version>-portable.zip` (runtime sources, launchers, README/LICENSE/CHANGELOG/notices) plus a `.sha256` checksum and `build-manifest.json` recording Python/platform/git-commit inputs and per-file digests. The build never downloads anything; a `vendor/7zip` folder is included only if already present (bundling remains gated on the LONG_TASK §10.2 #3 approval).
+- Portable launchers (`ductzip.cmd`, `DuctZip GUI.cmd`) that set `PYTHONPATH`/`DUCTZIP_SETTINGS_PATH` beside the package and advertise `DUCTZIP_PORTABLE_ROOT`.
+- Portable-aware Explorer registration: `ductzip shell register` launched from a portable copy records the portable `.cmd` launchers (verbs get `"<ductzip.cmd>" shell <verb> "%1"`; the GUI open command passes the archive only), so context-menu invocations work without a pip install. New `--launcher` option records an explicit launcher; verb/open command builders now derive the module selector from the launcher kind. New tests cover both launcher forms, portable env detection, and CLI passthrough.
 - Mark-of-the-Web propagation (DD-018): after a successful extraction, the archive's `Zone.Identifier` NTFS ADS is copied verbatim onto every extracted file (directories and reparse points excluded), so Windows keeps treating extracted content as coming from the archive's source zone. Best-effort by design: non-Windows/non-NTFS/no-MOTW archives are silent no-ops, and per-file ADS write failures never fail the extraction (collected on `MotwReport.failures` / `ExtractionService.last_motw_report`). Applies to CLI, GUI, and batch through the shared `ExtractionService`. 10 new tests cover ADS round-trips, recursive propagation, failure isolation, reparse skipping, and real-backend end-to-end propagation.
 
 - Per-user settings (`ductzip settings` and a GUI Settings dialog, same model):

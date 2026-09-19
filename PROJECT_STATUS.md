@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-当前已完成 v0.4.1 Smart Output Semantics 及其稳定化回归（取消响应、子进程回收、GUI 线程安全、Windows 保留设备名防护），完成 v0.5 批量解压（队列核心 + CLI `batch-extract` + GUI 批量工作流），完成 v0.6 Windows 集成（HKCU 右键菜单「解压到当前目录 / 解压到同名文件夹」+ Open-with 可见性，`register`/`unregister`/`status` 可逆且无需提权），并完成 v0.7 设置与安全隐私层（每用户设置模型 + CLI/GUI 设置入口、损坏恢复、对抗性安全回归测试、隐私/安全文档 `docs/SECURITY.md`）与 MOTW 传播（`Zone.Identifier` ADS 复制到全部解压文件，尽力而为、非 NTFS 安静跳过，DD-018）。全部 215 项测试通过。下一步进入 v0.7 打包与分发（便携包构建、7-Zip 捆绑来源/版本/校验和需先获用户批准、干净机器验证）。
+当前已完成 v0.4.1 Smart Output Semantics 及其稳定化回归（取消响应、子进程回收、GUI 线程安全、Windows 保留设备名防护），完成 v0.5 批量解压（队列核心 + CLI `batch-extract` + GUI 批量工作流），完成 v0.6 Windows 集成（HKCU 右键菜单「解压到当前目录 / 解压到同名文件夹」+ Open-with 可见性，`register`/`unregister`/`status` 可逆且无需提权），并完成 v0.7 设置与安全隐私层（每用户设置模型 + CLI/GUI 设置入口、损坏恢复、对抗性安全回归测试、隐私/安全文档 `docs/SECURITY.md`）与 MOTW 传播（`Zone.Identifier` ADS 复制到全部解压文件，尽力而为、非 NTFS 安静跳过，DD-018），以及 v0.7 便携打包（`scripts/build_portable.py` → 便携 zip + SHA-256 + 构建清单；便携 launcher 的 Explorer 注册免 pip 安装）。全部 224 项测试通过。打包分发剩余项：7-Zip 捆绑（来源/版本/校验和已提交用户待批准，§10.2 #3）、发布检查清单与干净机器复验。
 
 v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出目录、调用后端解压，并返回清晰结果。
 
@@ -107,7 +107,8 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.6 Windows 集成：`ductzip shell register/unregister/status`，HKCU 当前用户范围、幂等、精确可逆、无提权；右键动词「解压到当前目录」「解压到同名文件夹」覆盖 .zip/.7z/.rar/.tar/.gz/.bz2/.xz/.zst；OpenWithProgids 可见性不劫持默认程序；稳定调用协议 `python -m ductzip shell <verb> "%1"` 支持引号 Unicode 路径与多压缩包。
 - v0.6 Windows 集成：注册状态含 launcher 失效检测（`status` 报告，重新 `register` 修复）；真实 HKCU 注册→调用→卸载冒烟通过（中文/空格路径，`reg query` 验证键清除）。
 - v0.6 Windows 集成：新增 `tests/test_shell_integration.py` 9 项（FakeRegistry 布局/幂等/卸载完整性/部分损坏恢复 + 真实 HKCU 往返）与 `tests/test_cli.py::ShellCliTests` 5 项（per-archive 输出根、同名文件夹、失败隔离退出码、用法错误、缺后端）。
-- 测试规模：127 → 144 → 158 → 205 → 215 项。
+- 测试规模：127 → 144 → 158 → 205 → 215 → 224 项。
+- v0.7 打包：新增 `scripts/build_portable.py`（标准库、可重复、零下载）→ `dist/DuctZip-<version>-portable.zip` + `.sha256` + `build-manifest.json`（Python/平台/git 提交/逐文件 SHA-256 证据）；`packaging/portable/` 便携 launcher（自带 PYTHONPATH、包内设置路径、`DUCTZIP_PORTABLE_ROOT` 宣告）；便携注册支持：`ductzip shell register` 在便携模式下记录 `.cmd` 启动器（免 pip 安装，动词经 launcher 中转），新增 `--launcher` 显式指定；动词/打开命令构造按启动器类型派生模块选择器。新增/更新测试 9 项；便携包隔离冒烟（doctor/中文路径解压/设置/注册/状态/卸载全 0 退出）通过，`reg query` 证据确认注册表命令形态。`THIRD_PARTY_NOTICES.md` 建立（7-Zip 捆绑待批准的诚实声明 + Python/PySide6 引用）。
 - v0.7 MOTW：新增 `ductzip.motw`，解压成功后把压缩包 `Zone.Identifier` ADS 复制到全部解压文件（仅文件、跳过重解析点）；尽力而为——非 NTFS/无 MOTW 安静跳过、单文件写失败不阻塞解压（`MotwReport.failures` 供诊断）；挂接在 `ExtractionService`，CLI/GUI/批量自动继承；新增 `tests/test_motw.py` 10 项（ADS 往返、递归传播、失败隔离、重解析跳过、真实后端端到端）。DD-018。
 - v0.7 设置：新增 `ductzip.settings` 每用户设置模型（`%APPDATA%\DuctZip\settings.json`，`DUCTZIP_SETTINGS_PATH` 可覆盖）；原子写、损坏备份为 `settings.json.corrupt` 后重置默认值；`smart_output` 缺省为「未设置」，加载设置不改变 CLI `extract` 既有默认；设置中的后端路径失效时回退正常发现。
 - v0.7 设置入口：CLI `ductzip settings show/set/unset`（非法键/值退出码 2）+ GUI Settings 对话框（同一模型）；显式命令行参数 > 设置值 > 内置默认。
@@ -132,7 +133,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.4.1：Smart Output Semantics，已完成，并通过稳定化回归（取消、子进程回收、GUI 线程安全、保留设备名）。
 - v0.5：批量解压已完成（队列核心 + CLI 批量命令 + GUI 批量工作流，158 项测试通过）。
 - v0.6：Windows 集成已完成（HKCU 右键菜单 + Open-with + 可逆注册，DD-015）。
-- v0.7（安全/设置/隐私）：设置模型、设置 CLI/GUI 入口、安全强化与对抗性测试、MOTW 传播、安全隐私文档已完成（DD-016/017/018，215 项测试通过）；打包分发待办。
+- v0.7（安全/设置/隐私）：设置模型、设置 CLI/GUI 入口、安全强化与对抗性测试、MOTW 传播、安全隐私文档已完成（DD-016/017/018，224 项测试通过）；便携打包脚本与产物已完成，7-Zip 捆绑与发布清单待办。
 
 ### 明确暂缓
 
