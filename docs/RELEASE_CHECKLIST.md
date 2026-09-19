@@ -21,10 +21,11 @@
 ## 3. 构建产物
 
 - [ ] `python scripts/build_portable.py` 从零构建成功（可先删除 `dist/`）。
-- [ ] 记录 `dist/build-manifest.json` 的 git 提交号、Python 版本、`bundled_7zip` 标志。
+- [ ] 记录 `dist/build-manifest.json` 的 git 提交号、Python 版本、`bundled_7zip` 标志与 `bundled_7zip_backend`（版本/上游来源/安装包 SHA-256）；该文件不得出现构建机绝对路径。
 - [ ] 记录产物 SHA-256（`.sha256` 文件内容）。
-- [ ] 解包检查：无 `tests/`、`__pycache__`、本地路径、私有样例；`LICENSE`/`THIRD_PARTY_NOTICES.md`/`README.md` 在位。
-- [ ] 若捆绑 7-Zip：`vendor/7zip/` 内二进制与构建清单中的版本/校验和一致；`THIRD_PARTY_NOTICES.md` 已填具体版本、来源与校验和。
+- [ ] 解包检查：无 `tests/`、`__pycache__`、本地路径、私有样例；`LICENSE`/`THIRD_PARTY_NOTICES.md`/`README.md` 与 `vendor/7zip/` 在位。
+- [ ] 捆绑校验门生效：`vendor/7zip/` 三个文件与 `scripts/build_portable.py` 中的 pin 一致（构建会自行拒绝不一致的情况）；`THIRD_PARTY_NOTICES.md` 的版本/来源/校验和与之一致。
+- [ ] 供应链限制已在 `THIRD_PARTY_NOTICES.md`、`docs/SECURITY.md`、`PORTABLE.txt` 与发布说明中明示：上游 7-Zip Windows 二进制不含 Authenticode 签名，验证依赖 TLS + 上游发布摘要。
 
 ## 4. 产物冒烟（隔离目录，不依赖开发环境）
 

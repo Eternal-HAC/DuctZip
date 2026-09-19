@@ -10,9 +10,10 @@ Requirements
 ------------
 - Windows 10/11.
 - Python 3.11 or newer on PATH (python / pythonw).
-- 7-Zip installed, or a standalone 7z.exe / 7zz.exe reachable through the
-  normal discovery order (explicit flag > DUCTZIP_7Z_PATH > bundled copy if
-  present > standard install locations > registry > PATH).
+- No 7-Zip installation required: this package bundles the 7-Zip console
+  backend in vendor\7zip. A system-installed or explicitly configured backend
+  still takes priority (explicit flag > DUCTZIP_7Z_PATH > bundled copy >
+  standard install locations > registry > PATH).
 - GUI only: PySide6 in the active Python environment
   (python -m pip install PySide6).
 
@@ -38,8 +39,15 @@ DUCTZIP_SETTINGS_PATH before launching to use another location.
 Extraction outputs, logs, and the registry keys created by
 "shell register" are the only things DuctZip writes outside this folder.
 
-7-Zip bundling status
----------------------
-This build does NOT bundle a 7-Zip binary unless a vendor\7zip folder is
-present. Bundling happens only after an explicit approval recorded in the
-repository (LONG_TASK.md section 10.2, item 3); see THIRD_PARTY_NOTICES.md.
+7-Zip backend
+-------------
+This build bundles the official 7-Zip console backend (7z.exe + 7z.dll,
+version 26.03 x64) in vendor\7zip, so extraction works on a machine with no
+7-Zip installed.
+
+Note that upstream 7-Zip does not Authenticode-sign its Windows binaries, so
+the bundled files carry no publisher signature. They were verified by TLS
+transport plus the SHA-256 digest published in the upstream release metadata;
+the exact hashes and the full verification chain are recorded in
+THIRD_PARTY_NOTICES.md. If you require a signed backend, point DuctZip at your
+own copy with --sevenzip or DUCTZIP_7Z_PATH.

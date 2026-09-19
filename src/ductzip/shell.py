@@ -37,6 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+import abc
 import os
 import sys
 
@@ -61,35 +62,40 @@ _CLASSES = r"Software\Classes"
 # --------------------------------------------------------------------- registry
 
 
-class Registry:
+class Registry(abc.ABC):
     """Minimal current-user registry surface.
 
     Implementations: :class:`WinRegistry` (winreg-backed, HKCU) and
     :class:`FakeRegistry` (dict-backed, for tests). ``key_path`` values are
     relative to HKCU; use ``name=""`` for the default value.
+
+    Abstract by design: callers depend on the interface, and the two concrete
+    implementations are the only things ever instantiated.
     """
 
+    @abc.abstractmethod
     def set_value(self, key_path: str, name: str, value: str) -> None:
-        raise NotImplementedError
+        """Set one value, creating the key path as needed."""
 
+    @abc.abstractmethod
     def get_value(self, key_path: str, name: str) -> str | None:
         """Return the value, or ``None`` when the key or value is absent."""
-        raise NotImplementedError
 
+    @abc.abstractmethod
     def delete_value(self, key_path: str, name: str) -> None:
         """Remove one value; absent key/value is not an error."""
-        raise NotImplementedError
 
+    @abc.abstractmethod
     def delete_tree(self, key_path: str) -> None:
         """Remove a key and everything below it; absent key is not an error."""
-        raise NotImplementedError
 
+    @abc.abstractmethod
     def key_exists(self, key_path: str) -> bool:
-        raise NotImplementedError
+        """Return whether the key is present."""
 
+    @abc.abstractmethod
     def snapshot(self) -> dict[tuple[str, str], str]:
         """Every (key, value-name) pair, for scoped-diff assertions."""
-        raise NotImplementedError
 
 
 class WinRegistry(Registry):

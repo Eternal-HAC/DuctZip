@@ -40,6 +40,18 @@ REQUIRED_PORTABLE_FILES = ("ductzip.cmd", "DuctZip GUI.cmd", "PORTABLE.txt")
 # Refuse to package if any of these path fragments show up inside src/ductzip.
 FORBIDDEN_FRAGMENTS = ("__pycache__", ".pyc", "tests")
 
+# Pinned identity of the bundled 7-Zip backend. The build refuses to package a
+# vendor/7zip whose contents do not match these digests, so a replaced or
+# corrupted backend cannot ship silently. Keep in sync with
+# THIRD_PARTY_NOTICES.md and docs/DESIGN_DECISIONS.md (DD-008 amendment).
+BUNDLED_7ZIP_SOURCE_URL = "https://www.7-zip.org/a/7z2603-x64.exe"
+BUNDLED_7ZIP_INSTALLER_SHA256 = "0859c524b8a63551848f0c246abddcb1d0b7b656b0fbfe879f8d85e61a9e6edd"
+BUNDLED_7ZIP_FILES = {
+    "7z.exe": "6ee3c0ed0b27663c1b948ae85a7c0bb073aed1498983182f3f0df1f6a8c30b2f",
+    "7z.dll": "65e4c1f855f9ef6e8f0f5df8e3f27d9eb5f07311408639da0a1ca0b8f4871b0d",
+    "License.txt": "519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d",
+}
+
 
 def package_version() -> str:
     text = (SRC_PACKAGE / "__init__.py").read_text(encoding="utf-8")
@@ -68,20 +80,44 @@ def sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-def local_backend_record() -> dict[str, str] | None:
-    """Record the build machine's discovered 7-Zip as a build input (not bundled)."""
+def verify_bundled_backend() -> None:
+    """Fail the build if vendor/7zip is incomplete or does not match the pins."""
+    missing = sorted(name for name in BUNDLED_7ZIP_FILES if not (VENDOR_7ZIP / name).is_file())
+    if missing:
+        raise RuntimeError(f"vendor/7zip is incomplete; missing: {missing}")
+    mismatched = sorted(
+        name for name, expected in BUNDLED_7ZIP_FILES.items()
+        if sha256_of(VENDOR_7ZIP / name) != expected
+    )
+    if mismatched:
+        raise RuntimeError(
+            "vendor/7zip contents do not match the recorded checksums: "
+            f"{mismatched}. Update the pins in this script and "
+            "THIRD_PARTY_NOTICES.md together (DD-008 amendment)."
+        )
+
+
+def bundled_backend_record() -> dict[str, str] | None:
+    """Describe the bundled backend using repo-relative facts only.
+
+    Deliberately records no build-host paths: the manifest accompanies a
+    release artifact and must not leak developer-machine locations.
+    """
+    if not (VENDOR_7ZIP / "7z.exe").is_file():
+        return None
     sys.path.insert(0, str(REPO_ROOT / "src"))
     try:
-        from ductzip.archive import find_sevenzip, get_sevenzip_version
-        from ductzip.archive.errors import SevenZipMissing
+        from ductzip.archive import get_sevenzip_version
 
-        try:
-            backend = find_sevenzip()
-        except SevenZipMissing:
-            return None
-        return {"path": str(backend), "version": get_sevenzip_version(backend)}
+        version = get_sevenzip_version(VENDOR_7ZIP / "7z.exe")
     finally:
         sys.path.remove(str(REPO_ROOT / "src"))
+    return {
+        "path": "vendor/7zip/7z.exe",
+        "version": version,
+        "installer_source_url": BUNDLED_7ZIP_SOURCE_URL,
+        "installer_sha256": BUNDLED_7ZIP_INSTALLER_SHA256,
+    }
 
 
 def collect_source_files() -> list[Path]:
@@ -103,6 +139,8 @@ def build(output_dir: Path) -> Path:
 
     version = package_version()
     bundle_backend = VENDOR_7ZIP.is_dir() and any(VENDOR_7ZIP.iterdir())
+    if bundle_backend:
+        verify_bundled_backend()
     artifact = output_dir / f"DuctZip-{version}-portable.zip"
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -114,7 +152,7 @@ def build(output_dir: Path) -> Path:
         "git_commit": git_commit(),
         "built_at_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
         "bundled_7zip": bool(bundle_backend),
-        "discovered_backend_build_input": local_backend_record(),
+        "bundled_7zip_backend": bundled_backend_record(),
         "files": [],
     }
 

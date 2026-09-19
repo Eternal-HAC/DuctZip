@@ -17,10 +17,11 @@ The project is intentionally scoped as an engineering prototype for a future des
 - 7-Zip discovery through:
   - explicit `--sevenzip` path
   - `DUCTZIP_7Z_PATH`
-  - planned bundled `vendor/7zip/7z.exe` path
+  - bundled `vendor/7zip/7z.exe` backend (7-Zip 26.03, tracked in the repository and shipped in the portable build)
   - standard Windows 7-Zip install directories
   - Windows uninstall registry entries
   - `PATH`
+- Bundled console backend, so a machine with no 7-Zip installation can still extract. The bundled binary carries no publisher signature; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the verification chain and the residual supply-chain limitation.
 - ZIP, 7z, and RAR extraction verified with real 7-Zip integration tests.
 - Chinese and space-containing paths covered by tests.
 - Password-protected 7z extraction covered by tests.
@@ -38,7 +39,6 @@ The project is intentionally scoped as an engineering prototype for a future des
 ## Not Yet Implemented
 
 - Compression.
-- Bundled 7-Zip binary.
 - Installer / signed release artifacts.
 
 ## Tech Stack
@@ -52,9 +52,9 @@ The project is intentionally scoped as an engineering prototype for a future des
 
 - Windows.
 - Python 3.11 or newer.
-- 7-Zip installed, or a standalone `7z.exe` / `7zz.exe`.
+- No 7-Zip installation required: the repository and the portable build ship a bundled backend. A system-installed or explicitly configured `7z.exe` / `7zz.exe` takes priority when you want a different one.
 
-The prototype can find 7-Zip from common install locations and Windows registry entries. If discovery fails, pass the backend path manually.
+The bundled backend is used automatically. `ductzip doctor` reports which backend was selected; an explicit `--sevenzip` path always wins, and a system installation is used when no bundled copy is present.
 
 Install GUI dependencies:
 
@@ -241,4 +241,4 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed plan.
 
 DuctZip is released under the MIT License. See [`LICENSE`](LICENSE).
 
-The current repository does not bundle 7-Zip binaries. If a future release includes 7-Zip, the repository should add `THIRD_PARTY_NOTICES.md` and include the required 7-Zip license notices.
+DuctZip bundles the 7-Zip console backend under [`vendor/7zip/`](vendor/7zip/) (7-Zip 26.03, LGPL v2.1+ with the unRAR restriction). Third-party components, their licenses, the exact source URL, and the recorded SHA-256 checksums are documented in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

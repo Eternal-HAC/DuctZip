@@ -207,7 +207,7 @@
 - [x] 强化权限错误提示。（未知后端错误不再展示原始输出，稳定本地化消息 + `.detail` 调试通道，DD-017）
 - [x] 增加设置页。（CLI `ductzip settings` + GUI Settings 对话框，同一模型，DD-016）
 - [x] 增加隐私说明。（docs/SECURITY.md）
-- [x] 增加打包脚本。（`scripts/build_portable.py` → `dist/DuctZip-<version>-portable.zip` + `.sha256` + `build-manifest.json`；便携 launcher 注册支持；7-Zip 捆绑仍待 §10.2 #3 批准后补入 `vendor/7zip`）
+- [x] 增加打包脚本。（`scripts/build_portable.py` → `dist/DuctZip-<version>-portable.zip` + `.sha256` + `build-manifest.json`；便携 launcher 注册支持；`vendor/7zip` 已捆绑官方 7-Zip 26.03 控制台后端，构建时强制校验固定 SHA-256，见 DD-008 修订）
 - [x] 增加发布检查清单。（`docs/RELEASE_CHECKLIST.md`，覆盖测试门/版本一致性/构建产物/隔离冒烟/安全复核/决定记录/收尾）
 
 ## v1.0 首个稳定版本

@@ -19,5 +19,8 @@ output/
 out/
 tmp/
 
-# Future bundled third-party binaries should be added deliberately with notices.
-vendor/
+# Vendored third-party binaries are tracked deliberately, with notices and
+# recorded checksums (see THIRD_PARTY_NOTICES.md). Everything else under
+# vendor/ stays local.
+vendor/*
+!vendor/7zip/
