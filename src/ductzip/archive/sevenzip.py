@@ -644,6 +644,7 @@ def _map_sevenzip_error(output: str) -> ArchiveError:
     if (
         "can not open the file as archive" in normalized
         or "cannot open the file as archive" in normalized
+        or "is not archive" in normalized
         or "headers error" in normalized
         or "unexpected end of archive" in normalized
         or "data error" in normalized
@@ -653,4 +654,7 @@ def _map_sevenzip_error(output: str) -> ArchiveError:
     if "access is denied" in normalized or "permission denied" in normalized:
         return OutputPermissionDenied()
 
-    return UnknownArchiveError(output or None)
+    # Unknown errors get the stable user-facing message, not a raw backend
+    # output dump (which can contain full local paths). The raw output stays
+    # available on ``.detail`` for debugging.
+    return UnknownArchiveError(detail=output or None)

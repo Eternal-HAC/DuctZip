@@ -12,6 +12,7 @@ import unittest
 import zipfile
 from unittest.mock import patch
 
+import tests.settings_harness  # noqa: F401  # forces a throwaway settings path
 from ductzip.archive import (
     ArchiveCancelled,
     ArchiveNotFound,
@@ -25,6 +26,7 @@ from ductzip.archive import (
 )
 from ductzip.archive.sevenzip import _map_sevenzip_error, _parse_progress_token
 from ductzip.cli import main
+from ductzip.settings import load_settings, settings_path
 
 
 def make_fake_7z(directory: Path, exit_code: int = 0, output: str = "fake 7z") -> Path:
@@ -809,6 +811,104 @@ class ShellCliTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("7-Zip", err)
+
+
+class SettingsCliTests(unittest.TestCase):
+    """The ``ductzip settings`` command and CLI-level settings precedence."""
+
+    def setUp(self) -> None:
+        path = settings_path()
+        if path.is_file():
+            path.unlink()
+        backup = path.with_name(path.name + ".corrupt")
+        if backup.is_file():
+            backup.unlink()
+
+    def _run(self, argv: list[str]) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = main(argv)
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_settings_show_reports_path_and_defaults(self) -> None:
+        code, out, _ = self._run(["settings"])
+        self.assertEqual(code, 0)
+        self.assertIn("设置文件", out)
+        self.assertIn(str(settings_path()), out)
+        self.assertIn("overwrite_policy=skip", out)
+        self.assertIn("conflict_strategy=merge", out)
+        self.assertIn("smart_output=未设置", out)
+        self.assertIn("sevenzip_path=（未设置，自动发现）", out)
+
+    def test_settings_set_persists_and_unset_resets(self) -> None:
+        code, _, _ = self._run(["settings", "set", "overwrite_policy", "rename"])
+        self.assertEqual(code, 0)
+        self.assertEqual(load_settings().settings.overwrite_policy, "rename")
+
+        code, _, _ = self._run(["settings", "unset", "overwrite_policy"])
+        self.assertEqual(code, 0)
+        self.assertEqual(load_settings().settings.overwrite_policy, "skip")
+
+    def test_settings_set_rejects_bad_values_with_exit_2(self) -> None:
+        for argv in (
+            ["settings", "set", "overwrite_policy", "clobber"],
+            ["settings", "set", "unknown_key", "x"],
+            ["settings", "unset", "unknown_key"],
+        ):
+            code, _, err = self._run(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertTrue(err.strip(), argv)
+
+    def test_settings_set_backend_requires_existing_file(self) -> None:
+        code, _, err = self._run(["settings", "set", "sevenzip_path", r"C:\no\such\7z.exe"])
+        self.assertEqual(code, 2)
+        self.assertIn("不存在", err)
+
+    def test_settings_show_recovers_from_corrupt_file(self) -> None:
+        path = settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("### not json", encoding="utf-8")
+        code, out, err = self._run(["settings"])
+        self.assertEqual(code, 0)
+        self.assertIn("overwrite_policy=skip", out)
+        self.assertIn("损坏", err)
+        self.assertTrue(path.with_name(path.name + ".corrupt").is_file())
+        self.assertFalse(path.is_file())
+
+    def test_doctor_uses_configured_backend_without_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            fake = make_fake_7z(Path(temp))
+            code, _, _ = self._run(["settings", "set", "sevenzip_path", str(fake)])
+            self.assertEqual(code, 0)
+            code, out, _ = self._run(["doctor"])
+            self.assertEqual(code, 0)
+            self.assertIn(str(fake.resolve()), out)
+
+    def test_explicit_sevenzip_flag_beats_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            dir_a = Path(temp) / "a"
+            dir_b = Path(temp) / "b"
+            dir_a.mkdir()
+            dir_b.mkdir()
+            configured = make_fake_7z(dir_a, output="configured backend")
+            explicit = make_fake_7z(dir_b, output="explicit backend")
+            self.assertEqual(self._run(["settings", "set", "sevenzip_path", str(configured)])[0], 0)
+            code, out, _ = self._run(["doctor", "--sevenzip", str(explicit)])
+            self.assertEqual(code, 0)
+            self.assertIn(str(explicit.resolve()), out)
+            self.assertNotIn(str(configured.resolve()), out)
+
+    def test_stale_configured_backend_falls_back_to_discovery(self) -> None:
+        # A configured backend that disappears must not hard-fail the CLI;
+        # discovery falls back (doctor finds whatever the environment offers
+        # or fails with the normal missing-backend error, never a crash).
+        with tempfile.TemporaryDirectory() as temp:
+            fake = make_fake_7z(Path(temp))
+            self.assertEqual(self._run(["settings", "set", "sevenzip_path", str(fake)])[0], 0)
+            fake.unlink()
+            code, out, err = self._run(["doctor"])
+            self.assertIn(code, (0, 1))
+            self.assertTrue(out or err)
 
 
 if __name__ == "__main__":

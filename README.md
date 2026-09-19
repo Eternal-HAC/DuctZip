@@ -1,6 +1,6 @@
 # DuctZip
 
-DuctZip is a lightweight Windows archive extraction tool. The current version is a v0.5 CLI, archive-core, batch queue, and PySide6 GUI prototype focused on reliably finding a local 7-Zip backend, inspecting archives, extracting files, and returning clear user-facing results.
+DuctZip is a lightweight Windows archive extraction tool. The current version is a v0.7 CLI, archive-core, batch queue, Windows Explorer integration, and PySide6 GUI prototype focused on reliably finding a local 7-Zip backend, inspecting archives, extracting files, and returning clear user-facing results.
 
 The project is intentionally scoped as an engineering prototype for a future desktop extractor. It documents product research, architecture, roadmap decisions, and test coverage so the repository can be reviewed as a maintainable open-source project rather than a one-off script.
 
@@ -38,8 +38,9 @@ The project is intentionally scoped as an engineering prototype for a future des
 ## Not Yet Implemented
 
 - Compression.
-- Windows context menu.
+- Mark-of-the-Web propagation (see [`docs/SECURITY.md`](docs/SECURITY.md)).
 - Bundled 7-Zip binary.
+- Installer / signed release artifacts.
 
 ## Tech Stack
 
@@ -159,6 +160,18 @@ python -m ductzip shell unregister
 
 Registration is idempotent and exactly reversible; see [`docs/WINDOWS_INTEGRATION.md`](docs/WINDOWS_INTEGRATION.md) for the registry layout, the stable invocation protocol, and known limitations.
 
+Manage durable preferences (backend path, default policies):
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m ductzip settings                 # show current values and file location
+python -m ductzip settings set smart_output false
+python -m ductzip settings set sevenzip_path "D:\7-Zip\7z.exe"
+python -m ductzip settings unset sevenzip_path
+```
+
+Settings live in `%APPDATA%\DuctZip\settings.json` (override with `DUCTZIP_SETTINGS_PATH`). Explicit command-line flags always win over settings, and settings never change the CLI's built-in defaults on their own. The GUI has the same options under **Settings…**. Corrupt settings files are backed up as `settings.json.corrupt` and reset to defaults. See [`docs/SECURITY.md`](docs/SECURITY.md) for the full security and privacy statement (password handling, network behavior, and known limitations).
+
 The GUI supports archive preview, password input, Smart output (on by default, with the output directory defaulting to the archive's parent folder), final-output preview, and conflict strategy selection. If a preview fails because the archive requires a password, enter the password and reload by leaving the password field.
 
 Use a specific 7-Zip backend:
@@ -211,7 +224,7 @@ $env:QT_QPA_PLATFORM = "offscreen"
 - v0.4.1: Smart Output Semantics formalized in `ductzip.core` with a shared CLI/GUI orchestration service.
 - v0.5: batch extraction.
 - v0.6: Windows Explorer integration.
-- v0.7+: packaging, security hardening, and release readiness.
+- v0.7: settings, security hardening, and privacy documentation (packaging in progress).
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed plan.
 

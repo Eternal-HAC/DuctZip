@@ -4,7 +4,16 @@ All notable changes to DuctZip are documented here. The project is pre-1.0; vers
 
 ## [Unreleased]
 
-v0.6 Windows integration and v0.5 batch workflows (queue core + CLI + GUI) and v0.4.1 stabilization pass: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 158 tests pass.
+v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workflows, and v0.4.1 stabilization: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 205 tests pass.
+
+### Added
+
+- Per-user settings (`ductzip settings` and a GUI Settings dialog, same model):
+  - `ductzip settings show/set/unset` for `sevenzip_path`, `overwrite_policy`, `conflict_strategy`, `smart_output`. Precedence: explicit CLI flag > setting > built-in default, so loading settings never silently changes CLI behavior.
+  - Storage at `%APPDATA%\DuctZip\settings.json` (override with `DUCTZIP_SETTINGS_PATH`); atomic saves; corrupt files are backed up as `settings.json.corrupt` and reset to defaults so startup never hangs on bad input.
+  - A configured backend path is validated when written and falls back to normal discovery if it later goes stale.
+- Adversarial security regression suite (12 tests): a 40+-case path-validation matrix (traversal with either separator, dot/empty segments, absolute/drive-relative/UNC/`\\?\` paths, reserved device names with extensions/case/trailing dots), batch validation with one bad entry, backslash-traversal archives blocked end-to-end, malformed archives (garbage bytes, truncated zip, empty file) mapped to stable errors, preset/mid-run cancellation races, and CLI wrong-password output proven free of the password.
+- `docs/SECURITY.md`: what DuctZip reads, writes, executes, and logs; password handling; the local-only (no network/telemetry) commitment; MOTW honestly recorded as not implemented (pending the LONG_TASK §10.2 #5 decision); known unsupported boundaries (links/reparse points, TOCTOU, listing-size limits).
 
 ### Added
 

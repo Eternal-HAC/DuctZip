@@ -13,8 +13,10 @@ from ductzip.core import (
     SmartOutputPolicy,
     detect_output_conflicts,
 )
+from ductzip.settings import effective_sevenzip, load_settings, save_settings
 
 from . import workers
+from .settings_dialog import SettingsDialog
 from .workers import BatchWorker, ExtractWorker, PreviewWorker
 
 try:
@@ -24,6 +26,7 @@ try:
         QApplication,
         QCheckBox,
         QComboBox,
+        QDialog,
         QFileDialog,
         QHBoxLayout,
         QLabel,
@@ -81,6 +84,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("DuctZip")
         self.resize(720, 420)
 
+        self._settings_result = load_settings()
+
         self.cancel_event: threading.Event | None = None
         self.worker_thread: QThread | None = None
         self.worker: ExtractWorker | None = None
@@ -110,7 +115,12 @@ class MainWindow(QMainWindow):
         self.password_input.setEchoMode(QLineEdit.Password)
         self.show_password_checkbox = QCheckBox("Show")
         self.smart_output_checkbox = QCheckBox("Smart output")
-        self.smart_output_checkbox.setChecked(True)
+        # smart_output settings default to GUI's built-in (on) when unset.
+        self.smart_output_checkbox.setChecked(
+            self._settings_result.settings.smart_output
+            if self._settings_result.settings.smart_output is not None
+            else True
+        )
 
         self.archive_button = QPushButton("Browse")
         self.output_button = QPushButton("Browse")
@@ -119,12 +129,15 @@ class MainWindow(QMainWindow):
         self.cancel_button.setEnabled(False)
         self.open_output_button = QPushButton("Open Folder")
         self.open_output_button.setEnabled(False)
+        self.settings_button = QPushButton("Settings…")
 
         self.policy_combo = QComboBox()
         self.policy_combo.addItems(["skip", "overwrite", "rename"])
+        self.policy_combo.setCurrentText(self._settings_result.settings.overwrite_policy)
         self.policy_combo.setToolTip("How to handle existing files in the output directory.")
         self.conflict_strategy_combo = QComboBox()
         self.conflict_strategy_combo.addItems(["merge", "rename", "cancel"])
+        self.conflict_strategy_combo.setCurrentText(self._settings_result.settings.conflict_strategy)
         self.conflict_strategy_combo.setToolTip("How to handle existing top-level output conflicts.")
 
         self.progress_bar = QProgressBar()
@@ -153,6 +166,11 @@ class MainWindow(QMainWindow):
 
         self._build_layout()
         self._connect_signals()
+        if self._settings_result.corrupt_recovered:
+            self.append_log("设置文件已损坏：已重置为默认值（备份为 settings.json.corrupt）。")
+
+    def _effective_sevenzip(self) -> str | None:
+        return effective_sevenzip(self._settings_result.settings)
 
     def _build_layout(self) -> None:
         central = QWidget()
@@ -188,6 +206,7 @@ class MainWindow(QMainWindow):
         action_row.addWidget(self.conflict_strategy_combo)
         action_row.addWidget(self.smart_output_checkbox)
         action_row.addStretch(1)
+        action_row.addWidget(self.settings_button)
         action_row.addWidget(self.open_output_button)
         action_row.addWidget(self.cancel_button)
         action_row.addWidget(self.extract_button)
@@ -222,6 +241,7 @@ class MainWindow(QMainWindow):
         self.extract_button.clicked.connect(self.start_extract)
         self.cancel_button.clicked.connect(self.cancel_extract)
         self.open_output_button.clicked.connect(self.open_output_dir)
+        self.settings_button.clicked.connect(self.open_settings)
         self.archive_input.fileDropped.connect(self.on_archive_selected)
         self.archive_input.filesDropped.connect(self.add_batch_archives)
         self.archive_input.textChanged.connect(self.on_archive_text_changed)
@@ -302,7 +322,7 @@ class MainWindow(QMainWindow):
         if self.preview_thread is not None:
             return
         self.preview_thread = QThread(self)
-        self.preview_worker = PreviewWorker()
+        self.preview_worker = PreviewWorker(sevenzip_path=self._effective_sevenzip())
         self.preview_worker.moveToThread(self.preview_thread)
         self.preview_worker.request.connect(self.preview_worker.on_request)
         self.preview_worker.loaded.connect(self.on_preview_loaded)
@@ -412,6 +432,7 @@ class MainWindow(QMainWindow):
             self.current_password(),
             self.smart_output_checkbox.isChecked(),
             self.cancel_event,
+            sevenzip_path=self._effective_sevenzip(),
         )
         self.worker.moveToThread(self.worker_thread)
 
@@ -454,6 +475,20 @@ class MainWindow(QMainWindow):
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_output_dir)))
 
+    def open_settings(self) -> None:
+        dialog = SettingsDialog(self._settings_result.settings, parent=self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        updated = dialog.result_settings()
+        path = save_settings(updated)
+        self._settings_result = load_settings()
+        self.smart_output_checkbox.setChecked(
+            updated.smart_output if updated.smart_output is not None else True
+        )
+        self.policy_combo.setCurrentText(updated.overwrite_policy)
+        self.conflict_strategy_combo.setCurrentText(updated.conflict_strategy)
+        self.append_log(f"设置已保存：{path}")
+
     @Slot(str)
     def on_failed(self, message: str) -> None:
         self.append_log(f"Failed: {message}")
@@ -492,7 +527,8 @@ class MainWindow(QMainWindow):
         if self.batch_queue is None:
             # workers.SevenZipCliEngine is looked up on the module so tests can
             # patch it once for both preview and batch, like the preview path.
-            self.batch_queue = BatchQueue(ExtractionService(workers.SevenZipCliEngine()))
+            # The configured settings backend (if any) applies here too.
+            self.batch_queue = BatchQueue(ExtractionService(workers.SevenZipCliEngine(self._effective_sevenzip())))
         return self.batch_queue
 
     @Slot(list)

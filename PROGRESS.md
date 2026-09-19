@@ -2,9 +2,62 @@
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 
-## Phase 4: v0.6 Windows integration — DONE
+## Phase 5: v0.7 security, settings, privacy — IN PROGRESS
 
 **Timestamp:** 2026-09-19
+**Branch:** `main`, `HEAD` = `8653ca1` (Phase 4 checkpoint, local only)
+
+**BLOCKED_BY_USER_DECISION — LONG_TASK.md §10.2 #5 (MOTW policy):**
+The MOTW work item ("Implement the approved MOTW policy or document a consciously
+deferred limitation") cannot proceed without the user's decision on propagation
+behavior, supported Windows/filesystem boundary, and whether an incomplete
+implementation blocks v1.0. Per §10.2 protocol: the MOTW branch is stopped; only
+independent, non-prejudicial work continues below.
+
+**Also pending (do not block current work):** §10.2 #7 (RAR fixture), #8 (release
+floor) — will be asked together with #5 before Phase 6.
+
+### Unblocked Phase 5 work completed (2026-09-19)
+
+- NEW `src/ductzip/settings.py`: per-user `Settings` model (`%APPDATA%\DuctZip\settings.json`,
+  `DUCTZIP_SETTINGS_PATH` override), atomic saves, corrupt-file backup+reset recovery,
+  per-field type fallback, write-time backend-path validation, stale-path discovery
+  fallback. `smart_output` unset means "surface built-in default" so loading settings
+  never changes CLI extract behavior (DD-016).
+- CLI: `ductzip settings show/set/unset` (bad key/value → 2); all commands resolve
+  preferences via `_runtime_prefs` (explicit flag > setting > built-in default).
+- GUI: `SettingsDialog` (new `gui/settings_dialog.py`), Settings… button, window applies
+  saved defaults at startup, engines (preview/extract/batch) use the configured backend.
+- Security hardening (DD-017): user-facing errors are stable localized messages; raw
+  backend output moved to `ArchiveError.detail`; "is not archive" now maps to
+  CorruptedArchive.
+- NEW tests: `tests/test_settings.py` (17), `tests/test_security.py` (12: 40+-case
+  path matrix, malformed archives, cancel races, password non-leakage),
+  `tests/test_gui_settings.py` (10), `tests/test_cli.py::SettingsCliTests` (8),
+  `tests/settings_harness.py` (forces throwaway settings path for all tests).
+- NEW `docs/SECURITY.md`; DD-016/DD-017; ARCHITECTURE/CHANGELOG/PROJECT_STATUS/
+  README/ROADMAP reconciled (v0.7 items checked; MOTW explicitly blocked on §10.2 #5).
+- Version 0.6.0 → 0.7.0 (pyproject + `__init__`).
+
+### Gate results (this machine, 2026-09-19)
+
+1. `python -m unittest discover -s tests` (`PYTHONPATH=src`, `PYTHONDONTWRITEBYTECODE=1`,
+   `QT_QPA_PLATFORM=offscreen`): **205 tests, 0 failures, 0 skips — OK**. Was 158.
+2. Settings CLI smoke with real backend: set/show/unset sevenzip_path + smart_output,
+   `doctor` resolves configured backend, corrupt-file recovery verified in suite.
+3. One debugging note: offscreen `QMessageBox.critical` in `on_failed` hangs tests;
+  root cause during this phase was a stub service rejecting the new `sevenzip_path`
+  kwarg (TypeError → failed signal → modal dialog). Fixed the stubs, not the product.
+
+### Gate status
+
+Phase 5 partial gate: settings + adversarial tests + privacy/security docs **PASS**.
+MOTW item: **BLOCKED_BY_USER_DECISION** (§10.2 #5).
+
+## Phase 4: v0.6 Windows integration — DONE (committed `8653ca1`)
+
+**Timestamp:** 2026-09-19
+**Checkpoint commit:** `8653ca1 feat: v0.6 Windows Explorer integration (HKCU shell verbs)` — local only, not pushed (per §10.2 #1 authorization).
 **Blocking decision RESOLVED (user, 2026-09-19):** LONG_TASK.md §10.2 item 4 — **HKCU current-user registration**, no elevation required.
 
 **Other §10.2 decisions resolved (user, 2026-09-19):**

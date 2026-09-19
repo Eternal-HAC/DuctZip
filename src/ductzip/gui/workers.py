@@ -45,6 +45,7 @@ class ExtractWorker(QObject):
         password: str | None,
         smart_output: bool,
         cancel_event: threading.Event,
+        sevenzip_path: str | None = None,
     ):
         super().__init__()
         self.archive_path = archive_path
@@ -54,6 +55,7 @@ class ExtractWorker(QObject):
         self.password = password
         self.smart_output = smart_output
         self.cancel_event = cancel_event
+        self.sevenzip_path = sevenzip_path
         self._cancel_reported = False
 
     def _report_cancelled_once(self) -> None:
@@ -64,7 +66,7 @@ class ExtractWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            service = ExtractionService()
+            service = ExtractionService(sevenzip_path=self.sevenzip_path)
             for event in service.extract_with_progress(
                 self.archive_path,
                 self.output_dir,
@@ -147,19 +149,20 @@ class PreviewWorker(QObject):
     failed = Signal(str, int)  # message, generation
     finished = Signal(int)  # generation
 
-    def __init__(self):
+    def __init__(self, sevenzip_path: str | None = None):
         super().__init__()
         self._archive_path = Path(".")
         self._password: str | None = None
         self._generation = -1
         self._cancel_event = threading.Event()
+        self._sevenzip_path = sevenzip_path
         self._engine: SevenZipCliEngine | None = None
 
     def _get_engine(self) -> SevenZipCliEngine:
         # Backend discovery (registry scan, PATH search) is not cheap; do it
         # once per window instead of once per preview request.
         if self._engine is None:
-            self._engine = SevenZipCliEngine()
+            self._engine = SevenZipCliEngine(self._sevenzip_path)
         return self._engine
 
     @Slot(str, object, int)

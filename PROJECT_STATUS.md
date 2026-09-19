@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-当前已完成 v0.4.1 Smart Output Semantics 及其稳定化回归（取消响应、子进程回收、GUI 线程安全、Windows 保留设备名防护），完成 v0.5 批量解压（队列核心 + CLI `batch-extract` + GUI 批量工作流），并完成 v0.6 Windows 集成（HKCU 右键菜单「解压到当前目录 / 解压到同名文件夹」+ Open-with 可见性，`register`/`unregister`/`status` 可逆且无需提权）。全部 158 项测试通过。下一步进入 v0.7 安全、设置与隐私（MOTW 政策等需先确认 LONG_TASK.md §10.2 剩余人工决策项）。
+当前已完成 v0.4.1 Smart Output Semantics 及其稳定化回归（取消响应、子进程回收、GUI 线程安全、Windows 保留设备名防护），完成 v0.5 批量解压（队列核心 + CLI `batch-extract` + GUI 批量工作流），完成 v0.6 Windows 集成（HKCU 右键菜单「解压到当前目录 / 解压到同名文件夹」+ Open-with 可见性，`register`/`unregister`/`status` 可逆且无需提权），并完成 v0.7 设置与安全隐私层（每用户设置模型 + CLI/GUI 设置入口、损坏恢复、对抗性安全回归测试、隐私/安全文档 `docs/SECURITY.md`，MOTW 明确记录为未实现的暂缓项，阻塞于 LONG_TASK.md §10.2 #5 人工决策）。全部 205 项测试通过。下一步进入 v0.7 打包与分发（便携包构建、7-Zip 捆绑来源/版本/校验和需先获用户批准、干净机器验证）。
 
 v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出目录、调用后端解压，并返回清晰结果。
 
@@ -107,7 +107,11 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.6 Windows 集成：`ductzip shell register/unregister/status`，HKCU 当前用户范围、幂等、精确可逆、无提权；右键动词「解压到当前目录」「解压到同名文件夹」覆盖 .zip/.7z/.rar/.tar/.gz/.bz2/.xz/.zst；OpenWithProgids 可见性不劫持默认程序；稳定调用协议 `python -m ductzip shell <verb> "%1"` 支持引号 Unicode 路径与多压缩包。
 - v0.6 Windows 集成：注册状态含 launcher 失效检测（`status` 报告，重新 `register` 修复）；真实 HKCU 注册→调用→卸载冒烟通过（中文/空格路径，`reg query` 验证键清除）。
 - v0.6 Windows 集成：新增 `tests/test_shell_integration.py` 9 项（FakeRegistry 布局/幂等/卸载完整性/部分损坏恢复 + 真实 HKCU 往返）与 `tests/test_cli.py::ShellCliTests` 5 项（per-archive 输出根、同名文件夹、失败隔离退出码、用法错误、缺后端）。
-- 测试规模：127 → 144 → 155 项。
+- 测试规模：127 → 144 → 158 → 205 项。
+- v0.7 设置：新增 `ductzip.settings` 每用户设置模型（`%APPDATA%\DuctZip\settings.json`，`DUCTZIP_SETTINGS_PATH` 可覆盖）；原子写、损坏备份为 `settings.json.corrupt` 后重置默认值；`smart_output` 缺省为「未设置」，加载设置不改变 CLI `extract` 既有默认；设置中的后端路径失效时回退正常发现。
+- v0.7 设置入口：CLI `ductzip settings show/set/unset`（非法键/值退出码 2）+ GUI Settings 对话框（同一模型）；显式命令行参数 > 设置值 > 内置默认。
+- v0.7 安全强化：未知后端错误不再向用户展示原始输出（稳定本地化消息，原始输出留 `.detail`）；「is not archive」映射为压缩包损坏；新增 `tests/test_security.py` 12 项（40+ 路径校验矩阵、畸形压缩包、取消竞态、CLI 错误输出不含密码）。
+- v0.7 文档：新增 `docs/SECURITY.md`（读取/写入/执行/日志说明、密码处理、本地-only 承诺、MOTW 未实现声明、已知不支持边界）；DD-016（设置存储）、DD-017（稳定错误消息）。
 
 ## 当前关键决策
 
@@ -127,7 +131,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.4.1：Smart Output Semantics，已完成，并通过稳定化回归（取消、子进程回收、GUI 线程安全、保留设备名）。
 - v0.5：批量解压已完成（队列核心 + CLI 批量命令 + GUI 批量工作流，158 项测试通过）。
 - v0.6：Windows 集成已完成（HKCU 右键菜单 + Open-with + 可逆注册，DD-015）。
-- v0.7 之后：安全/设置/隐私、发布打包。
+- v0.7（安全/设置/隐私）：设置模型、设置 CLI/GUI 入口、安全强化与对抗性测试、安全隐私文档已完成（DD-016/017，205 项测试通过）；打包分发与 MOTW 待办。
 
 ### 明确暂缓
 
@@ -140,7 +144,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 
 ## 下一步
 
-下一步进入 v0.7 安全、设置与隐私（MOTW 政策、设置模型、隐私说明、对抗性测试）。该阶段受 LONG_TASK.md §10.2 剩余人工决策项约束（#5 MOTW 政策、#7 RAR 样例、#8 发布底线；#6 签名与 #2/#3 已部分确认）。稳定化与批量阶段确认的两条安全边界仍然适用：
+下一步进入 v0.7 打包与分发（LONG_TASK.md Phase 6）：便携压缩包构建脚本、7-Zip standalone 后端捆绑（须先向用户提交来源/版本/校验和/许可证包并获明确批准，§10.2 #3）、构建输入与校验和记录、干净 Windows 环境安装/卸载验证。MOTW 决策（§10.2 #5）、RAR 样例（#7）与发布底线（#8）需用户在打包阶段前确认；代码签名（#6）可作为已记录的发布阻塞项。稳定化与批量阶段确认的两条安全边界仍然适用：
 
 1. 压缩包内符号链接 / Junction / 重解析点不做防护，属于当前不支持的能力，文档与错误提示需诚实声明，不假装已防护。
 2. 引擎在每次实际解压前自行 list 并校验真实条目；调用方（服务规划、批量预检）的 listing 仅供策略参考，安全校验不可被任何预计算数据绕过。

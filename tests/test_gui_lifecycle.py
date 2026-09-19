@@ -145,6 +145,9 @@ class _CancellingService:
     cancel event is set, then reports cancellation through both the event and
     the exception (exactly what the real engine does)."""
 
+    def __init__(self, *args, **kwargs):
+        pass
+
     def extract_with_progress(self, *args, **kwargs):
         cancel_event: threading.Event = kwargs["cancel_event"]
         from ductzip.archive import ArchiveCancelled, ProgressEvent
@@ -157,6 +160,9 @@ class _CancellingService:
 
 
 class _ExplodingService:
+    def __init__(self, *args, **kwargs):
+        pass
+
     def extract_with_progress(self, *args, **kwargs):
         raise RuntimeError("boom: something unrelated broke")
         yield  # pragma: no cover - makes this a generator

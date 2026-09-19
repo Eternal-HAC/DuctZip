@@ -1,10 +1,16 @@
 class ArchiveError(Exception):
-    """Base class for archive operation failures."""
+    """Base class for archive operation failures.
+
+    ``str(error)`` is always a stable, localized user message; raw backend
+    output (which can contain local paths) is kept separately on ``detail``
+    and must not be shown to normal users.
+    """
 
     user_message = "解压失败。"
 
-    def __init__(self, message: str | None = None):
+    def __init__(self, message: str | None = None, *, detail: str | None = None):
         super().__init__(message or self.user_message)
+        self.detail = detail
 
 
 class SevenZipMissing(ArchiveError):

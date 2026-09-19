@@ -7,6 +7,7 @@ import sys
 
 from .archive import ArchiveError, SevenZipCliEngine, find_sevenzip, get_sevenzip_version
 from .core import BatchQueue, ExtractionService, archive_logical_name
+from .settings import effective_sevenzip, load_settings, save_settings, set_value, unset_value
 from . import shell as shell_integration
 
 # Batch exit codes: 0 = all tasks completed, 1 = one or more tasks failed,
@@ -34,20 +35,24 @@ def build_parser() -> argparse.ArgumentParser:
     extract_parser.add_argument(
         "--overwrite-policy",
         choices=("skip", "overwrite", "rename"),
-        default="skip",
-        help="How to handle existing files in the output directory.",
+        default=None,
+        help="How to handle existing files in the output directory. "
+        "Default: the overwrite_policy setting, else 'skip'.",
     )
     extract_parser.add_argument(
         "--smart-output",
         action="store_true",
+        default=None,
         help="Resolve the final directory from the archive layout: a single top-level entry uses the "
-        "base directory directly; multiple top-level entries create a same-name-as-archive subdirectory.",
+        "base directory directly; multiple top-level entries create a same-name-as-archive subdirectory. "
+        "Default: the smart_output setting.",
     )
     extract_parser.add_argument(
         "--conflict-strategy",
         choices=("merge", "rename", "cancel"),
-        default="merge",
-        help="How to handle existing top-level output conflicts.",
+        default=None,
+        help="How to handle existing top-level output conflicts. "
+        "Default: the conflict_strategy setting, else 'merge'.",
     )
     extract_parser.add_argument("--verbose", action="store_true", help="Print diagnostic details.")
 
@@ -68,14 +73,16 @@ def build_parser() -> argparse.ArgumentParser:
     batch_parser.add_argument(
         "--overwrite-policy",
         choices=("skip", "overwrite", "rename"),
-        default="skip",
-        help="How to handle existing files in the output directory.",
+        default=None,
+        help="How to handle existing files in the output directory. "
+        "Default: the overwrite_policy setting, else 'skip'.",
     )
     batch_parser.add_argument(
         "--conflict-strategy",
         choices=("merge", "rename", "cancel"),
-        default="merge",
-        help="How to handle existing top-level output conflicts.",
+        default=None,
+        help="How to handle existing top-level output conflicts. "
+        "Default: the conflict_strategy setting, else 'merge'.",
     )
     batch_parser.add_argument(
         "--no-smart-output",
@@ -83,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Extract every archive directly into the base directory instead of resolving per-archive final directories.",
     )
-    batch_parser.set_defaults(smart_output=True)
+    batch_parser.set_defaults(smart_output=None)
     batch_parser.add_argument(
         "--retries",
         type=int,
@@ -116,14 +123,16 @@ def build_parser() -> argparse.ArgumentParser:
         verb_parser.add_argument(
             "--overwrite-policy",
             choices=("skip", "overwrite", "rename"),
-            default="skip",
-            help="How to handle existing files in the output directory.",
+            default=None,
+            help="How to handle existing files in the output directory. "
+            "Default: the overwrite_policy setting, else 'skip'.",
         )
         verb_parser.add_argument(
             "--conflict-strategy",
             choices=("merge", "rename", "cancel"),
-            default="merge",
-            help="How to handle existing top-level output conflicts.",
+            default=None,
+            help="How to handle existing top-level output conflicts. "
+            "Default: the conflict_strategy setting, else 'merge'.",
         )
         verb_parser.add_argument(
             "--retries",
@@ -152,6 +161,18 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser = subparsers.add_parser("doctor", help="Check DuctZip runtime dependencies.")
     doctor_parser.add_argument("--sevenzip", help="Path to 7z.exe or 7zz.exe.")
 
+    settings_parser = subparsers.add_parser(
+        "settings",
+        help="Show or change durable per-user preferences (backend path, default policies).",
+    )
+    settings_subparsers = settings_parser.add_subparsers(dest="settings_command")
+    settings_subparsers.add_parser("show", help="Show the settings file location and current values.")
+    settings_set = settings_subparsers.add_parser("set", help="Set a preference.")
+    settings_set.add_argument("key", help="sevenzip_path / overwrite_policy / conflict_strategy / smart_output")
+    settings_set.add_argument("value", help="New value ('' is rejected; use unset to clear).")
+    settings_unset = settings_subparsers.add_parser("unset", help="Reset a preference to its built-in default.")
+    settings_unset.add_argument("key", help="sevenzip_path / overwrite_policy / conflict_strategy / smart_output")
+
     return parser
 
 
@@ -160,9 +181,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "extract":
+        sevenzip, overwrite_policy, conflict_strategy, smart_output = _runtime_prefs(args, smart_default=False)
         try:
             password = _resolve_password(args)
-            service = ExtractionService(SevenZipCliEngine(args.sevenzip))
+            service = ExtractionService(SevenZipCliEngine(sevenzip))
             if args.verbose:
                 print(f"7-Zip: {service.engine.sevenzip_path}", file=sys.stderr)
                 print(f"Archive: {Path(args.archive_path)}", file=sys.stderr)
@@ -172,9 +194,9 @@ def main(argv: list[str] | None = None) -> int:
                     Path(args.archive_path),
                     Path(args.output),
                     password=password,
-                    overwrite_policy=args.overwrite_policy,
-                    smart_output=args.smart_output,
-                    conflict_strategy=args.conflict_strategy,
+                    overwrite_policy=overwrite_policy,
+                    smart_output=smart_output,
+                    conflict_strategy=conflict_strategy,
                 ):
                     if event.kind == "progress" and event.percent is not None:
                         print(f"Progress: {event.percent}%", file=sys.stderr)
@@ -187,9 +209,9 @@ def main(argv: list[str] | None = None) -> int:
                     Path(args.archive_path),
                     Path(args.output),
                     password=password,
-                    overwrite_policy=args.overwrite_policy,
-                    smart_output=args.smart_output,
-                    conflict_strategy=args.conflict_strategy,
+                    overwrite_policy=overwrite_policy,
+                    smart_output=smart_output,
+                    conflict_strategy=conflict_strategy,
                 )
         except ArchiveError as exc:
             print(str(exc), file=sys.stderr)
@@ -204,10 +226,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "shell":
         return _run_shell_command(args)
 
+    if args.command == "settings":
+        return _run_settings_command(args)
+
     if args.command == "list":
         try:
             password = _resolve_password(args)
-            engine = SevenZipCliEngine(args.sevenzip)
+            engine = SevenZipCliEngine(_resolve_sevenzip(args))
             listing = engine.list(Path(args.archive_path), password=password)
         except ArchiveError as exc:
             print(str(exc), file=sys.stderr)
@@ -222,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "test":
         try:
             password = _resolve_password(args)
-            engine = SevenZipCliEngine(args.sevenzip)
+            engine = SevenZipCliEngine(_resolve_sevenzip(args))
             engine.test(Path(args.archive_path), password=password)
         except ArchiveError as exc:
             print(str(exc), file=sys.stderr)
@@ -233,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "doctor":
         try:
-            sevenzip_path = find_sevenzip(args.sevenzip)
+            sevenzip_path = find_sevenzip(_resolve_sevenzip(args))
             version = get_sevenzip_version(sevenzip_path)
         except ArchiveError as exc:
             print(f"7-Zip: {exc}", file=sys.stderr)
@@ -254,8 +279,9 @@ def _run_batch_extract(args: argparse.Namespace) -> int:
     Exit codes: 0 all completed, 1 at least one failure, 130 cancelled.
     Passwords are consumed but never printed.
     """
+    sevenzip, overwrite_policy, conflict_strategy, smart_output = _runtime_prefs(args, smart_default=True)
     try:
-        service = _shell_service(args)
+        service = _shell_service(args, sevenzip)
     except _UsageError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -268,19 +294,41 @@ def _run_batch_extract(args: argparse.Namespace) -> int:
         queue.add(
             Path(archive_path),
             Path(args.output),
-            smart_output=args.smart_output,
-            conflict_strategy=args.conflict_strategy,
-            overwrite_policy=args.overwrite_policy,
+            smart_output=smart_output,
+            conflict_strategy=conflict_strategy,
+            overwrite_policy=overwrite_policy,
             password=_resolve_password(args),
         )
     return _run_queue_to_completion(queue, args)
 
 
-def _shell_service(args: argparse.Namespace) -> ExtractionService:
+def _resolve_sevenzip(args: argparse.Namespace) -> str | None:
+    """Explicit --sevenzip wins; then the configured settings preference."""
+    return getattr(args, "sevenzip", None) or effective_sevenzip(load_settings().settings)
+
+
+def _runtime_prefs(args: argparse.Namespace, *, smart_default: bool) -> tuple[str | None, str, str, bool]:
+    """Resolve (sevenzip, overwrite_policy, conflict_strategy, smart_output).
+
+    Precedence per flag: explicit CLI value > settings value > the surface's
+    built-in default (``smart_default``; settings never silently change it).
+    """
+    settings = load_settings().settings
+    sevenzip = _resolve_sevenzip(args)
+    overwrite = getattr(args, "overwrite_policy", None) or settings.overwrite_policy
+    conflict = getattr(args, "conflict_strategy", None) or settings.conflict_strategy
+    smart = getattr(args, "smart_output", None)
+    if smart is None:
+        configured = settings.smart_output
+        smart = configured if configured is not None else smart_default
+    return sevenzip, overwrite, conflict, smart
+
+
+def _shell_service(args: argparse.Namespace, sevenzip: str | None) -> ExtractionService:
     if getattr(args, "retries", 0) < 0:
         raise _UsageError("--retries must be >= 0")
     try:
-        return ExtractionService(SevenZipCliEngine(args.sevenzip))
+        return ExtractionService(SevenZipCliEngine(sevenzip))
     except ArchiveError as exc:
         raise _BackendUnavailable(str(exc)) from exc
 
@@ -328,8 +376,9 @@ def _run_shell_command(args: argparse.Namespace) -> int:
         return 0
 
     # extract-here / extract-to: one queue, per-archive output roots.
+    sevenzip, overwrite_policy, conflict_strategy, _ = _runtime_prefs(args, smart_default=True)
     try:
-        service = _shell_service(args)
+        service = _shell_service(args, sevenzip)
     except _UsageError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -349,11 +398,59 @@ def _run_shell_command(args: argparse.Namespace) -> int:
             archive,
             requested,
             smart_output=True,
-            conflict_strategy=args.conflict_strategy,
-            overwrite_policy=args.overwrite_policy,
+            conflict_strategy=conflict_strategy,
+            overwrite_policy=overwrite_policy,
             password=password,
         )
     return _run_queue_to_completion(queue, args)
+
+
+def _run_settings_command(args: argparse.Namespace) -> int:
+    """Show/set/unset durable per-user preferences.
+
+    Exit codes: 0 success, 2 invalid key/value.
+    """
+    subcommand = getattr(args, "settings_command", None) or "show"
+    loaded = load_settings()
+
+    if subcommand == "show":
+        print(f"设置文件：{loaded.path}")
+        if loaded.corrupt_recovered:
+            print(
+                "原设置文件已损坏：已重置为默认值（损坏文件备份为 settings.json.corrupt）。",
+                file=sys.stderr,
+            )
+        current = loaded.settings
+        backend = current.sevenzip_path or "（未设置，自动发现）"
+        smart = "未设置" if current.smart_output is None else ("true" if current.smart_output else "false")
+        print(f"sevenzip_path={backend}")
+        print(f"overwrite_policy={current.overwrite_policy}")
+        print(f"conflict_strategy={current.conflict_strategy}")
+        print(f"smart_output={smart}")
+        return 0
+
+    if subcommand == "set":
+        try:
+            updated = set_value(loaded.settings, args.key, args.value)
+            path = save_settings(updated)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(f"已保存：{args.key} = {args.value}（{path}）")
+        return 0
+
+    if subcommand == "unset":
+        try:
+            updated = unset_value(loaded.settings, args.key)
+            path = save_settings(updated)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(f"已恢复默认值：{args.key}（{path}）")
+        return 0
+
+    print(f"未知 settings 子命令：{subcommand}", file=sys.stderr)
+    return 2
 
 
 def _run_queue_to_completion(queue: BatchQueue, args: argparse.Namespace) -> int:
