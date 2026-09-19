@@ -12,6 +12,10 @@ safety check. ``ExtractionService`` may list an archive up front for Smart
 output / conflict planning (allowing one duplicate ``list`` for planning);
 that listing is advisory only and is never passed to the engine as a
 substitute for its own safety read.
+
+After the engine reports completion, the service best-effort propagates
+the archive's Mark-of-the-Web stream (``Zone.Identifier`` ADS) onto the
+extracted files; see :mod:`ductzip.motw`.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from ductzip.archive import (
     UnknownArchiveError,
 )
 from ductzip.archive.sevenzip import OverwritePolicy
+from ductzip.motw import MotwReport, propagate_motw
 
 from .smart_output import (
     ConflictStrategy,
@@ -61,6 +66,7 @@ class ExtractionService:
     ):
         self.engine = engine if engine is not None else SevenZipCliEngine(sevenzip_path)
         self.policy = policy if policy is not None else SmartOutputPolicy()
+        self.last_motw_report: MotwReport | None = None
 
     def list(self, archive_path: str | Path, password: str | None = None) -> ArchiveListing:
         return self.engine.list(archive_path, password=password)
@@ -154,10 +160,16 @@ class ExtractionService:
             listing=listing,
             cancel_event=cancel_event,
         )
-        yield from self.engine.extract_with_progress(
+        self.last_motw_report = None
+        for event in self.engine.extract_with_progress(
             plan.archive_path,
             plan.final_output_dir,
             password=password,
             cancel_event=cancel_event,
             overwrite_policy=plan.effective_overwrite_policy,
-        )
+        ):
+            if event.kind == "completed":
+                # Best-effort Zone.Identifier propagation (DD-018): never
+                # fails the extraction; per-file failures stay on the report.
+                self.last_motw_report = propagate_motw(plan.archive_path, plan.final_output_dir)
+            yield event

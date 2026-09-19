@@ -2,20 +2,60 @@
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 
-## Phase 5: v0.7 security, settings, privacy — IN PROGRESS
+## Phase 5 (continued): MOTW propagation — DONE (uncommitted at time of writing)
 
 **Timestamp:** 2026-09-19
-**Branch:** `main`, `HEAD` = `8653ca1` (Phase 4 checkpoint, local only)
+**Blocking decision RESOLVED (user, 2026-09-19, via AskUserQuestion):** LONG_TASK.md §10.2
+item 5 — **实现传播，v1.0 阻塞项**: copy the archive's `Zone.Identifier` ADS onto extracted
+outputs; silently skip on non-NTFS/no-MOTW; must complete and be tested before v1.0.
 
-**BLOCKED_BY_USER_DECISION — LONG_TASK.md §10.2 #5 (MOTW policy):**
+**Other §10.2 decisions resolved in the same batch (user, 2026-09-19):**
+
+- #6 Code signing: **unsigned release candidate allowed**, with documented disclosure
+  (no fabricated signing evidence).
+- #7 RAR fixture: **keep environment-provided test** (`tests/让子弹飞（二）.rar`, gitignored;
+  clean clones skip; noted RAR is proprietary and no local rar.exe exists to mint fixtures).
+- #8 Release floor: **deferred items allowed if explicitly recorded** — v1.0 may ship as RC
+  with recorded limitations.
+
+### MOTW work completed (2026-09-19)
+
+- NEW `src/ductzip/motw.py`: `read_zone_identifier` / `write_zone_identifier` (NTFS ADS via
+  `path:Zone.Identifier`), `iter_output_files` (walks final output dir, skips reparse points
+  and symlinks), `propagate_motw` → `MotwReport(source_had_motw, propagated, failures)`.
+  Best-effort contract: non-Windows/non-NTFS/no-MOTW → silent no-op; per-file write failure
+  is collected, never raised.
+- Hook: `ExtractionService.extract_with_progress` runs propagation on the engine's
+  `completed` event (before yielding it), so CLI, GUI, and batch inherit it automatically.
+  Report stashed on `service.last_motw_report` for diagnostics; not user-surfaced (per the
+  approved "quiet skip" policy).
+- NEW `tests/test_motw.py` (10 tests): ADS write/read round-trip, no-stream → None,
+  recursive propagation to files only (directories untagged), no-MOTW no-op, write-failure
+  collection, reparse-point skip, missing-output-dir no-op, plus real-backend service
+  integration (propagated, untagged source, MOTW failure does not fail extraction).
+- Docs: DD-018 appended; SECURITY.md MOTW section rewritten (implemented behavior +
+  boundaries, DD-012 alignment); ROADMAP v0.7 checkbox checked; ARCHITECTURE module layout
+  updated; CHANGELOG (215 tests); PROJECT_STATUS; README "Not Yet Implemented" cleaned.
+- Version stays 0.7.0 (MOTW belongs to the v0.7 milestone).
+
+---
+
+## Phase 5: v0.7 security, settings, privacy — PARTIAL (committed `c2b15f1`)
+
+**Timestamp:** 2026-09-19
+**Branch:** `main`, `HEAD` = `c2b15f1` (local checkpoint, not pushed)
+**Checkpoint commit:** `c2b15f1 feat: v0.7 settings model, security hardening, adversarial tests`
+
+**~~BLOCKED_BY_USER_DECISION~~ — RESOLVED 2026-09-19 (user chose "实现传播，v1.0 阻塞项";
+implemented in "Phase 5 (continued)" above).** Original blocker text kept for the record:
 The MOTW work item ("Implement the approved MOTW policy or document a consciously
 deferred limitation") cannot proceed without the user's decision on propagation
 behavior, supported Windows/filesystem boundary, and whether an incomplete
 implementation blocks v1.0. Per §10.2 protocol: the MOTW branch is stopped; only
 independent, non-prejudicial work continues below.
 
-**Also pending (do not block current work):** §10.2 #7 (RAR fixture), #8 (release
-floor) — will be asked together with #5 before Phase 6.
+**Also pending (do not block current work):** ~~§10.2 #7 (RAR fixture), #8 (release
+floor)~~ — all resolved 2026-09-19, see "Phase 5 (continued)" above.
 
 ### Unblocked Phase 5 work completed (2026-09-19)
 
@@ -52,7 +92,7 @@ floor) — will be asked together with #5 before Phase 6.
 ### Gate status
 
 Phase 5 partial gate: settings + adversarial tests + privacy/security docs **PASS**.
-MOTW item: **BLOCKED_BY_USER_DECISION** (§10.2 #5).
+MOTW item: was BLOCKED (§10.2 #5), **RESOLVED and implemented — see Phase 5 (continued)**.
 
 ## Phase 4: v0.6 Windows integration — DONE (committed `8653ca1`)
 
@@ -66,9 +106,18 @@ MOTW item: **BLOCKED_BY_USER_DECISION** (§10.2 #5).
 - #2 v1.0 delivery format: **portable zip**.
 - #3 7-Zip redistribution: **bundle official standalone backend, but only after presenting exact source/version/checksum/license for explicit approval — no download before approval**.
 
-**Still pending (will block Phases 5-7):**
+**Still pending (do not block current work):**
 
 - #5 MOTW policy, #6 code signing, #7 RAR fixture, #8 release floor.
+
+### Blocking decisions RESOLVED (user, 2026-09-19, via AskUserQuestion)
+
+- **#5 MOTW: 实现传播（Zone.Identifier 从压缩包复制到解压产物），v1.0 阻塞项** — 必须完成并测试后才能进入 v1.0 收尾。
+- **#6 代码签名: 允许未签名 release candidate**，文档/发布说明中明示未签名风险（不得伪造签名证据）。
+- **#7 RAR 样例: 保持环境提供测试** — 真实 RAR 验证维持条件性外部样例，干净克隆跳过，文档化。
+- **#8 发布底线: 允许带记录的限制项延期** — v0.5–v0.7 未完成项作为已知限制显式记录后，v1.0 便携包可发布为 RC。
+
+（§10.2 #3 7-Zip 捆绑维持 2026-09-19 决定：先提交来源/版本/校验和/许可证包获批准后才下载。）
 
 ### What changed (code)
 

@@ -4,9 +4,11 @@ All notable changes to DuctZip are documented here. The project is pre-1.0; vers
 
 ## [Unreleased]
 
-v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workflows, and v0.4.1 stabilization: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 205 tests pass.
+v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workflows, and v0.4.1 stabilization: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 215 tests pass.
 
 ### Added
+
+- Mark-of-the-Web propagation (DD-018): after a successful extraction, the archive's `Zone.Identifier` NTFS ADS is copied verbatim onto every extracted file (directories and reparse points excluded), so Windows keeps treating extracted content as coming from the archive's source zone. Best-effort by design: non-Windows/non-NTFS/no-MOTW archives are silent no-ops, and per-file ADS write failures never fail the extraction (collected on `MotwReport.failures` / `ExtractionService.last_motw_report`). Applies to CLI, GUI, and batch through the shared `ExtractionService`. 10 new tests cover ADS round-trips, recursive propagation, failure isolation, reparse skipping, and real-backend end-to-end propagation.
 
 - Per-user settings (`ductzip settings` and a GUI Settings dialog, same model):
   - `ductzip settings show/set/unset` for `sevenzip_path`, `overwrite_policy`, `conflict_strategy`, `smart_output`. Precedence: explicit CLI flag > setting > built-in default, so loading settings never silently changes CLI behavior.

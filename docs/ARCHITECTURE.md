@@ -72,6 +72,7 @@ ductzip/
   cli.py               # CLI 入口：extract/list/test/doctor/batch-extract/shell/settings
   shell.py             # Windows Explorer 集成：HKCU 注册/卸载/状态、稳定调用协议（DD-015）
   settings.py          # 每用户设置模型：存储/恢复/校验/优先级，详见 DD-016
+  motw.py              # Mark-of-the-Web 传播：Zone.Identifier ADS 复制，尽力而为（DD-018）
   core/
     smart_output.py    # SmartOutputPolicy、archive_logical_name、冲突推导
     extraction.py      # ExtractionService 编排（plan / extract_with_progress，支持 cancel_event）

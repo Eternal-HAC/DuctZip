@@ -202,7 +202,7 @@
 
 任务：
 
-- [ ] 实现 Mark-of-the-Web 传播策略。（阻塞于 LONG_TASK §10.2 #5 人工决策；docs/SECURITY.md 已诚实声明当前未实现）
+- [x] 实现 Mark-of-the-Web 传播策略。（压缩包 `Zone.Identifier` ADS 复制到全部解压文件；非 NTFS/无 MOTW 安静跳过；失败不阻塞解压，DD-018）
 - [x] 强化路径安全检查。（40+ 用例对抗矩阵 + 反斜杠穿越端到端拦截 + 保留设备名，tests/test_security.py）
 - [x] 强化权限错误提示。（未知后端错误不再展示原始输出，稳定本地化消息 + `.detail` 调试通道，DD-017）
 - [x] 增加设置页。（CLI `ductzip settings` + GUI Settings 对话框，同一模型，DD-016）

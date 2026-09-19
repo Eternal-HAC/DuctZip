@@ -38,7 +38,6 @@ The project is intentionally scoped as an engineering prototype for a future des
 ## Not Yet Implemented
 
 - Compression.
-- Mark-of-the-Web propagation (see [`docs/SECURITY.md`](docs/SECURITY.md)).
 - Bundled 7-Zip binary.
 - Installer / signed release artifacts.
 
