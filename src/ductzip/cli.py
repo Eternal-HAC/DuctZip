@@ -6,7 +6,8 @@ from pathlib import Path
 import sys
 
 from .archive import ArchiveError, SevenZipCliEngine, find_sevenzip, get_sevenzip_version
-from .core import BatchQueue, ExtractionService
+from .core import BatchQueue, ExtractionService, archive_logical_name
+from . import shell as shell_integration
 
 # Batch exit codes: 0 = all tasks completed, 1 = one or more tasks failed,
 # 130 = cancelled by the user (Ctrl+C), 2 = usage error (argparse).
@@ -92,6 +93,50 @@ def build_parser() -> argparse.ArgumentParser:
     )
     batch_parser.add_argument("--verbose", action="store_true", help="Print per-task diagnostic details.")
 
+    shell_parser = subparsers.add_parser(
+        "shell",
+        help="Windows Explorer integration: shell-facing extract verbs and HKCU registration.",
+    )
+    shell_subparsers = shell_parser.add_subparsers(dest="shell_command", required=True)
+    for verb, help_text in (
+        (
+            shell_integration.VERB_EXTRACT_HERE,
+            "Extract each archive into its own parent directory (Explorer 'extract here').",
+        ),
+        (
+            shell_integration.VERB_EXTRACT_TO,
+            "Extract each archive into a same-named folder beside it (Explorer 'extract to').",
+        ),
+    ):
+        verb_parser = shell_subparsers.add_parser(verb, help=help_text)
+        verb_parser.add_argument("archive_paths", nargs="+", help="Paths to the archive files.")
+        verb_parser.add_argument("--sevenzip", help="Path to 7z.exe or 7zz.exe.")
+        verb_parser.add_argument("--password", help="Archive password applied to every archive.")
+        verb_parser.add_argument("--password-prompt", action="store_true", help="Prompt for the archive password.")
+        verb_parser.add_argument(
+            "--overwrite-policy",
+            choices=("skip", "overwrite", "rename"),
+            default="skip",
+            help="How to handle existing files in the output directory.",
+        )
+        verb_parser.add_argument(
+            "--conflict-strategy",
+            choices=("merge", "rename", "cancel"),
+            default="merge",
+            help="How to handle existing top-level output conflicts.",
+        )
+        verb_parser.add_argument(
+            "--retries",
+            type=int,
+            default=0,
+            metavar="N",
+            help="Retry each failed task up to N additional times.",
+        )
+        verb_parser.add_argument("--verbose", action="store_true", help="Print per-task diagnostic details.")
+    shell_subparsers.add_parser("register", help="Register Explorer context-menu verbs for the current user (HKCU).")
+    shell_subparsers.add_parser("unregister", help="Remove all DuctZip Explorer registration (HKCU).")
+    shell_subparsers.add_parser("status", help="Show Explorer registration state and launcher health.")
+
     list_parser = subparsers.add_parser("list", help="List archive entries.")
     list_parser.add_argument("archive_path", help="Path to the archive file.")
     list_parser.add_argument("--sevenzip", help="Path to 7z.exe or 7zz.exe.")
@@ -156,6 +201,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "batch-extract":
         return _run_batch_extract(args)
 
+    if args.command == "shell":
+        return _run_shell_command(args)
+
     if args.command == "list":
         try:
             password = _resolve_password(args)
@@ -206,13 +254,12 @@ def _run_batch_extract(args: argparse.Namespace) -> int:
     Exit codes: 0 all completed, 1 at least one failure, 130 cancelled.
     Passwords are consumed but never printed.
     """
-    if args.retries < 0:
-        print("--retries must be >= 0", file=sys.stderr)
-        return 2
     try:
-        password = _resolve_password(args)
-        service = ExtractionService(SevenZipCliEngine(args.sevenzip))
-    except ArchiveError as exc:
+        service = _shell_service(args)
+    except _UsageError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except _BackendUnavailable as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
@@ -224,16 +271,101 @@ def _run_batch_extract(args: argparse.Namespace) -> int:
             smart_output=args.smart_output,
             conflict_strategy=args.conflict_strategy,
             overwrite_policy=args.overwrite_policy,
+            password=_resolve_password(args),
+        )
+    return _run_queue_to_completion(queue, args)
+
+
+def _shell_service(args: argparse.Namespace) -> ExtractionService:
+    if getattr(args, "retries", 0) < 0:
+        raise _UsageError("--retries must be >= 0")
+    try:
+        return ExtractionService(SevenZipCliEngine(args.sevenzip))
+    except ArchiveError as exc:
+        raise _BackendUnavailable(str(exc)) from exc
+
+
+class _UsageError(Exception):
+    """Maps to exit code 2."""
+
+
+class _BackendUnavailable(Exception):
+    """Maps to exit code 1."""
+
+
+def _run_shell_command(args: argparse.Namespace) -> int:
+    """Dispatch the ``ductzip shell`` protocol.
+
+    ``extract-here`` / ``extract-to`` are the stable invocation targets of the
+    Explorer context-menu verbs; ``register`` / ``unregister`` / ``status``
+    manage the current-user (HKCU) registration. Explorer launches the verb
+    command once per selected file, but the verbs also accept several
+    archives in one invocation.
+    """
+    if args.shell_command == "register":
+        report = shell_integration.register()
+        print(f"已注册（当前用户）：{report.launcher}")
+        print(f"覆盖扩展名：{' '.join(report.extensions)}")
+        print("卸载：python -m ductzip shell unregister")
+        return 0
+    if args.shell_command == "unregister":
+        removed = shell_integration.unregister()
+        if removed:
+            print(f"已移除 {len(removed)} 项注册表项。")
+        else:
+            print("未发现 DuctZip 注册项，无需清理。")
+        return 0
+    if args.shell_command == "status":
+        report = shell_integration.status()
+        if not report.registered:
+            print("未注册。")
+            return 0
+        state = "可用" if report.launcher_exists else "已失效（launcher 不存在）"
+        print(f"已注册（当前用户）：{report.launcher} — {state}")
+        missing = [name for name, present in report.verbs_present.items() if not present]
+        if missing:
+            print(f"缺失项：{len(missing)}（如 {missing[0]}）；建议重新 register。")
+        return 0
+
+    # extract-here / extract-to: one queue, per-archive output roots.
+    try:
+        service = _shell_service(args)
+    except _UsageError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except _BackendUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    password = _resolve_password(args)
+    queue = BatchQueue(service)
+    for archive_path in args.archive_paths:
+        archive = Path(archive_path)
+        if args.shell_command == shell_integration.VERB_EXTRACT_TO:
+            requested = archive.parent / archive_logical_name(archive)
+        else:
+            requested = archive.parent
+        queue.add(
+            archive,
+            requested,
+            smart_output=True,
+            conflict_strategy=args.conflict_strategy,
+            overwrite_policy=args.overwrite_policy,
             password=password,
         )
+    return _run_queue_to_completion(queue, args)
 
-    if args.verbose:
+
+def _run_queue_to_completion(queue: BatchQueue, args: argparse.Namespace) -> int:
+    """Drain a queue (with retries), print per-task lines, return the exit code."""
+    if getattr(args, "verbose", False):
+        service = queue.service
         print(f"7-Zip: {service.engine.sevenzip_path}", file=sys.stderr)
         print(f"Tasks: {len(queue.tasks)}", file=sys.stderr)
 
     try:
         _drain_batch(queue, args)
-        for _ in range(args.retries):
+        for _ in range(getattr(args, "retries", 0)):
             failed = [task for task in queue.tasks if task.state == "failed"]
             if not failed:
                 break

@@ -148,6 +148,17 @@ $env:PYTHONPATH = "src"
 python -m ductzip.gui
 ```
 
+Register Windows Explorer integration (current user, no elevation — adds "用 DuctZip 解压到当前目录 / 解压到同名文件夹" to the archive context menu):
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m ductzip shell register
+python -m ductzip shell status
+python -m ductzip shell unregister
+```
+
+Registration is idempotent and exactly reversible; see [`docs/WINDOWS_INTEGRATION.md`](docs/WINDOWS_INTEGRATION.md) for the registry layout, the stable invocation protocol, and known limitations.
+
 The GUI supports archive preview, password input, Smart output (on by default, with the output directory defaulting to the archive's parent folder), final-output preview, and conflict strategy selection. If a preview fails because the archive requires a password, enter the password and reload by leaving the password field.
 
 Use a specific 7-Zip backend:

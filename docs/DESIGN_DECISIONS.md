@@ -403,6 +403,38 @@
 - 若出现跨任务全局冲突汇总需求，评估 `ExtractionPlan` 聚合形态（继承 DD-009 复审条件）。
 - 若用户明确要求并发解压，重新评估并发数与后端进程配额设计。
 
+## DD-015 Windows 集成：仅 HKCU 注册表动词，不碰原生 Shell Extension
+
+状态：已采用，v0.6 已实现。
+
+采用方案：
+
+- 集成面 = 当前用户（HKCU）注册表项：`SystemFileAssociations\<ext>\shell` 下的两个 DuctZip 动词（解压到当前目录 / 解压到同名文件夹）、自有 ProgID `DuctZip.Archive`（open 指向 GUI + 同带动词）、各扩展名 `OpenWithProgids` 可见性项、`Software\DuctZip` 元数据键。
+- `register` 幂等；`unregister` 精确移除自己创建的键与值，部分损坏状态下也能恢复干净；全程无 HKLM、无提权。
+- 文件关联只做 Open-with 可见性，不更改默认打开程序（可逆、不劫持）。
+- 稳定调用协议 `"<launcher>" -m ductzip shell <verb> "%1"`；launcher 记录绝对路径，`status` 检测失效路径，重新 `register` 修复。
+
+原因：
+
+- 用户决策（§10.2 #4）批准的范围就是当前用户注册；原生 Shell Extension（DLL、IExplorerCommand 稀疏包）未获批准且引入签名/部署复杂度。
+- 注册表动词是 Explorer 的公开稳定扩展点，注册到调用到卸载可用 `reg query` 与脚本完全验证，符合可逆底线。
+
+放弃方案：
+
+- HKLM 整机器注册（需要提权，超出批准范围）。
+- 修改默认文件关联（劫持用户选择，不可逆风险）。
+- 现代 Win11 上下文菜单包（属于未批准的原生扩展）。
+
+风险：
+
+- Windows 11 上经典动词折叠在「显示更多选项」内，入口深度不如原生菜单（已在 docs/WINDOWS_INTEGRATION.md 诚实声明）。
+- 便携包迁移后记录的 launcher 绝对路径会失效，需重新 register（status 可检测）。
+
+复审条件：
+
+- 若未来批准原生 Shell Extension，重新评估 Win11 一级菜单入口。
+- 若新增格式支持，扩展 ARCHIVE_EXTENSIONS 并复审动词覆盖。
+
 ## DD-014 批量 worker 线程回收：run() 收尾直接退出本线程事件循环
 
 状态：已采用，v0.5 GUI 批量工作流已实现。

@@ -729,5 +729,87 @@ class BatchCliTests(unittest.TestCase):
         self.assertEqual(code, 130)
 
 
+class ShellCliTests(unittest.TestCase):
+    """The Explorer-facing protocol: per-archive output roots, shell exit codes."""
+
+    def run_shell(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_extract_here_uses_each_archives_parent_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_logging_fake_7z(root)
+            dir_a = root / "dir a"
+            dir_b = root / "目录 b"
+            dir_a.mkdir()
+            dir_b.mkdir()
+            archive_a = dir_a / "photos.zip"
+            archive_b = dir_b / "文档 archive.zip"
+            for archive in (archive_a, archive_b):
+                archive.write_bytes(b"fake")
+
+            code, out, _ = self.run_shell(
+                ["shell", "extract-here", str(archive_a), str(archive_b), "--sevenzip", str(fake)]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn(f"[完成] {archive_a} -> {dir_a.resolve()}", out)
+            self.assertIn(f"[完成] {archive_b} -> {dir_b.resolve()}", out)
+
+    def test_extract_to_uses_same_named_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_logging_fake_7z(root)
+            plain = root / "photos.zip"
+            multi_suffix = root / "照片 档案.tar.gz"
+            for archive in (plain, multi_suffix):
+                archive.write_bytes(b"fake")
+
+            code, out, _ = self.run_shell(
+                ["shell", "extract-to", str(plain), str(multi_suffix), "--sevenzip", str(fake)]
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn(f"[完成] {plain} -> {(root / 'photos').resolve()}", out)
+            self.assertIn(
+                f"[完成] {multi_suffix} -> {(root / '照片 档案').resolve()}", out
+            )
+
+    def test_extract_here_mixed_failure_isolated_and_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_logging_fake_7z(root, fail_substr="broken")
+            good = root / "good.zip"
+            broken = root / "broken.zip"
+            for archive in (good, broken):
+                archive.write_bytes(b"fake")
+
+            code, out, err = self.run_shell(
+                ["shell", "extract-here", str(good), str(broken), "--sevenzip", str(fake)]
+            )
+
+            self.assertEqual(code, 1)
+            self.assertIn("[完成]", out)
+            self.assertIn("[失败]", out)
+            self.assertIn("失败 1", err)
+
+    def test_shell_verbs_reject_negative_retries(self) -> None:
+        code, _, err = self.run_shell(["shell", "extract-here", "a.zip", "--retries", "-1"])
+
+        self.assertEqual(code, 2)
+        self.assertIn("retries", err)
+
+    def test_shell_verbs_missing_backend_is_failure(self) -> None:
+        code, _, err = self.run_shell(
+            ["shell", "extract-to", "a.zip", "--sevenzip", "Z:/missing/7z.exe"]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("7-Zip", err)
+
+
 if __name__ == "__main__":
     unittest.main()

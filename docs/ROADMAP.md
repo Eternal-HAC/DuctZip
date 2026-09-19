@@ -172,6 +172,8 @@
 
 目标：让 DuctZip 融入 Windows 日常使用流程。
 
+状态：已完成（HKCU 当前用户范围，DD-015）。
+
 完成标准：
 
 - 右键菜单可调用 DuctZip。
@@ -180,12 +182,12 @@
 
 任务：
 
-- [ ] 设计 CLI 入口参数。
-- [ ] 实现右键菜单注册脚本。
-- [ ] 实现右键菜单卸载脚本。
-- [ ] 支持文件关联。
-- [ ] 支持从 Explorer 传入多个文件。
-- [ ] 编写 Windows 集成文档。
+- [x] 设计 CLI 入口参数（`ductzip shell extract-here|extract-to`，稳定调用协议）。
+- [x] 实现右键菜单注册脚本（`ductzip shell register`，HKCU 幂等注册）。
+- [x] 实现右键菜单卸载脚本（`ductzip shell unregister`，精确移除、空操作安全）。
+- [x] 支持文件关联（OpenWithProgids 可见性，不劫持默认程序）。
+- [x] 支持从 Explorer 传入多个文件（每文件一次调用 + 协议支持多路径）。
+- [x] 编写 Windows 集成文档（`docs/WINDOWS_INTEGRATION.md`）。
 
 ## v0.7 安全与可发布性
 

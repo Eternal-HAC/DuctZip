@@ -4,10 +4,16 @@ All notable changes to DuctZip are documented here. The project is pre-1.0; vers
 
 ## [Unreleased]
 
-v0.5 batch workflows (queue core + CLI + GUI) and v0.4.1 stabilization pass: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 144 tests pass.
+v0.6 Windows integration and v0.5 batch workflows (queue core + CLI + GUI) and v0.4.1 stabilization pass: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 158 tests pass.
 
 ### Added
 
+- Reversible current-user Windows Explorer integration (`ductzip shell`):
+  - `ductzip shell register` / `unregister` / `status`: idempotent HKCU registration, scoped and exactly reversible; no elevation, no HKLM, no native shell extension.
+  - Context-menu verbs for `.zip .7z .rar .tar .gz .bz2 .xz .zst`: 「用 DuctZip 解压到当前目录」(extract-here) and 「用 DuctZip 解压到同名文件夹」(extract-to), plus an Open-with (OpenWithProgids) entry that never hijacks the default program.
+  - Stable invocation protocol `"<launcher>" -m ductzip shell <verb> "%1"` with quoted Unicode path handling; verbs also accept multiple archives per invocation and the standard batch options (`--password`, `--overwrite-policy`, `--conflict-strategy`, `--retries`, `--sevenzip`, `--verbose`).
+  - Stale-launcher detection via `shell status`; re-running `register` repairs the recorded path.
+  - `docs/WINDOWS_INTEGRATION.md` documents scope, registry layout, protocol, and known limitations (Windows 11 classic-verb location, per-file Explorer invocation, multi-suffix coverage).
 - New `ductzip batch-extract` CLI command: extract multiple archives into one shared output root with a single invocation. Per-task `[完成]/[失败]/[取消]` reporting and a Chinese summary on stderr; exit codes 0 (all completed), 1 (some failed), 130 (cancelled via Ctrl+C, which cancels the whole queue), 2 (usage error). `--retries N` re-runs failed tasks up to N times; `--verbose` streams per-task progress.
 - GUI batch queue: drop multiple archives (or add via file dialog) to populate a queue list with per-task status, progress percentage, error, and final output directory; start, retry failed/cancelled tasks, remove tasks where legal (running/planning tasks are refused and the refusal is logged), cancel current task, cancel all; double-click a completed task to open its final output folder. Batch runs on a background thread with the window staying responsive; window close during a batch cancels and reaps it within a bounded time.
 - New `ductzip.gui.workers.BatchWorker`: re-emits every `BatchEvent` from the queue runner to the window; cancellation calls straight into the queue (thread-safe) because the worker thread has no event loop while `run()` executes.

@@ -2,7 +2,7 @@
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 
-## Phase 4: v0.6 Windows integration — IN PROGRESS
+## Phase 4: v0.6 Windows integration — DONE
 
 **Timestamp:** 2026-09-19
 **Blocking decision RESOLVED (user, 2026-09-19):** LONG_TASK.md §10.2 item 4 — **HKCU current-user registration**, no elevation required.
@@ -13,9 +13,30 @@ Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 - #2 v1.0 delivery format: **portable zip**.
 - #3 7-Zip redistribution: **bundle official standalone backend, but only after presenting exact source/version/checksum/license for explicit approval — no download before approval**.
 
-**Still pending (will block Phases 5-7):** #5 MOTW policy, #6 code signing, #7 RAR fixture, #8 release floor.
+**Still pending (will block Phases 5-7):**
 
-**Phase 4 plan:** CLI invocation protocol for one/multiple selected archives → HKCU register/unregister module (idempotent, scoped, reversible; approved verbs: context-menu 解压到当前目录 / 解压到同名文件夹; approved associations per user confirmation at implementation time if ambiguous) → integration tests on disposable registry keys → docs.
+- #5 MOTW policy, #6 code signing, #7 RAR fixture, #8 release floor.
+
+### What changed (code)
+
+- NEW `src/ductzip/shell.py`: Registry abstraction (`WinRegistry` lazy-winreg HKCU / `FakeRegistry` for tests), idempotent `register`, exactly-reversible `unregister` (safe on clean/partial/corrupt states), `status` with stale-launcher detection, stable verb command protocol `"<launcher>" -m ductzip shell <verb> "%1"`. Layout: `Software\DuctZip` metadata, ProgID `DuctZip.Archive` (open→GUI + both verbs), per-extension verbs under `SystemFileAssociations`, `OpenWithProgids` visibility only (no default-program hijack). Verbs: extract-here / extract-to; extensions: .zip .7z .rar .tar .gz .bz2 .xz .zst. Version bumped to 0.6.0 (pyproject + `__init__`).
+- `src/ductzip/cli.py`: `shell` subcommand group — `extract-here` (per-archive parent dir roots), `extract-to` (per-archive same-named folder roots via `archive_logical_name`), `register`/`unregister`/`status`. Refactored shared queue drain into `_run_queue_to_completion` (retries, Ctrl+C→cancel_all→130, per-task lines, exit codes 0/1/130/2).
+- NEW `tests/test_shell_integration.py` (9): scoped-layout, idempotency, full-removal, partial-corruption recovery, stale-launcher status, missing-verb status, command quoting, launcher resolution, real-HKCU round trip.
+- `tests/test_cli.py::ShellCliTests` (5): extract-here per-archive parents (Chinese/spaced names), extract-to same-named folders incl. `.tar.gz` multi-suffix, mixed failure isolation + exit 1, negative retries → 2, missing backend → 1.
+
+### Gate results (this machine, 2026-09-19)
+
+1. `python -m unittest discover -s tests` (`PYTHONPATH=src`, `PYTHONDONTWRITEBYTECODE=1`, `QT_QPA_PLATFORM=offscreen`): **158 tests, 0 failures, 0 skips — OK**. Was 144 before Phase 4.
+2. Manual real-HKCU smoke: `shell register` → `reg query` shows scoped verb keys with correct command strings → invoked the registered command form (`pythonw.exe -m ductzip shell extract-to/extract-here "我的 照片.zip"`) with real 7-Zip — correct extraction (same-named folder / parent dir) → `shell unregister` (26 keys removed) → `reg query` confirms clean, `status` = 未注册.
+
+### Documentation reconciliation (same phase)
+
+- `docs/WINDOWS_INTEGRATION.md` (new): scope/principles, registry layout, invocation protocol, known limitations (Win11 classic-verb location, per-file Explorer invocation, multi-suffix coverage).
+- `CHANGELOG.md`, `PROJECT_STATUS.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` (v0.6 tasks checked), `docs/DESIGN_DECISIONS.md` (DD-015).
+
+### Gate status
+
+Phase 4 gate: **PASS** — repeatable register → invoke → unregister demonstrated on real HKCU with scoped, reversible diff (automated FakeRegistry suite + real-registry round-trip test + manual smoke with Chinese/spaced paths); CLI/core suites still pass.
 
 ## Phase 3: v0.5 batch CLI + GUI workflows — DONE
 

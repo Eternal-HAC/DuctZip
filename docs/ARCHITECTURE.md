@@ -65,11 +65,12 @@ ductzip/
     platform.py
 ```
 
-当前实际落地的模块（截至 v0.4.1 稳定化，上图中的 app/ui/shell/security/utils 仍是方向性建议，尚未建包）：
+当前实际落地的模块（截至 v0.6，上图中的 app/security/utils 仍是方向性建议，尚未建包）：
 
 ```text
 ductzip/
-  cli.py               # CLI 入口：extract/list/test/doctor
+  cli.py               # CLI 入口：extract/list/test/doctor/batch-extract/shell
+  shell.py             # Windows Explorer 集成：HKCU 注册/卸载/状态、稳定调用协议（DD-015）
   core/
     smart_output.py    # SmartOutputPolicy、archive_logical_name、冲突推导
     extraction.py      # ExtractionService 编排（plan / extract_with_progress，支持 cancel_event）
@@ -78,8 +79,8 @@ ductzip/
     __init__.py        # 错误类型与数据结构（ArchiveError 族、ArchiveEntry、ArchiveListing、ProgressEvent）
     sevenzip.py        # SevenZipCliEngine：7z 进程封装、输出解析、错误映射、路径校验、子进程生命周期
   gui/
-    app.py             # MainWindow（含窗口关闭的有界回收逻辑）
-    workers.py         # ExtractWorker / PreviewWorker：QObject worker，与窗口解耦可独立单测
+    app.py             # MainWindow（单解压 + 批量队列工作流、窗口关闭的有界回收逻辑）
+    workers.py         # ExtractWorker / PreviewWorker / BatchWorker：QObject worker，与窗口解耦可独立单测
 ```
 
 ## 各层职责
