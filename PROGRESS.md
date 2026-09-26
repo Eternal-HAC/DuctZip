@@ -45,6 +45,11 @@ Full report with file+line evidence: `docs/FINAL_REVIEW.md` (created before any 
   Chinese+space extract round trip, GUI entry without PySide6 → readable message, exit 1).
 - `git diff --check` exit 0. No push/tag/release performed; local checkpoint commits recorded below.
 
+Checkpoint: local commit `10cc9e9` on `main` contains the full RC + closure state (33 files);
+`.task_logs/` stays untracked as machine-local raw evidence. The artifacts above were built
+**before** this commit, hence the manifest's `git_dirty=true`; a release build should be
+re-run after committing so the shipped manifest records `git_dirty=false`.
+
 Note: the manifest `worktree_diff_sha256` identifies the tracked diff at build time; the final
 commit for release should rebuild so the shipped manifest records `git_dirty=false`.
 
