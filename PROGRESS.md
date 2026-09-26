@@ -2,10 +2,357 @@
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 
-## Phase 6 (continued): 7-Zip backend bundling — DONE (this commit)
+## 2026-09-26 RC closure re-verification (Claude Code) — DONE
+
+Independent pre-release review per `tasks/claude-code/2026-09-26_00-28_ductzip-final-review-and-rc-closure.md`.
+Full report with file+line evidence: `docs/FINAL_REVIEW.md` (created before any fix). Raw logs: `.task_logs/`
+(`phase3_full_suite_1..3.log`, `phase3_gui_pair_1..20.log`, `phase0_*.log`, `gui_repeat_*.log`,
+`single_test_*.log`).
+
+### Findings fixed (all with regression tests that fail on the old implementation)
+
+| ID | Defect | Fix |
+| --- | --- | --- |
+| P1-1 | GUI teardown race: dropping the worker wrapper while the OS thread is still exiting destroyed the C++ object mid-teardown → intermittent access violation / heap corruption / hard abort (reproduced: 2/30 solo runs, 1/20 module-pair runs, signatures 0xC0000005 & 0xC0000374 & abort; same signature as the unexplained 2026-09-26 first-suite anomalous exit) | `MainWindow.on_worker_finished` / `on_batch_thread_finished` hold references until `QThread.wait()` confirms the OS thread is dead; racy `finished → deleteLater` chains removed; idempotent. Tests: `GuiShutdownTests.test_on_worker_finished_holds_worker_until_os_thread_dead`, `test_on_batch_thread_finished_holds_worker_until_os_thread_dead` |
+| P2-4 | MOTW propagation tagged pre-existing files in merge scenarios, mislabeling local content as downloaded | pre-extraction snapshot + `exclude` in `propagate_motw`; only files the extraction produced are tagged. Test: `ServiceMotwIntegrationTests.test_extract_does_not_tag_preexisting_files` |
+| P2-1 | portable manifest recorded only `git_commit` — a dirty worktree masqueraded as a pure-HEAD artifact | manifest gains `git_dirty` + `worktree_diff_sha256` (SHA-256 over `git diff HEAD`). Tests: `tests/test_build_portable.py` (3) |
+| P2-2 | portable zip lacked `docs/USER_MANUAL.md` (broken reference in the release notes) | package root now ships `USER_MANUAL.md` + version-matched `RELEASE_NOTES.md`; build fails if either is missing; `PORTABLE.txt` updated |
+| P2-3 | release notes §6 contained a developer-machine absolute path | rewritten as "仓库根目录" |
+| P2-5 | wheel builds are not bit-for-bit reproducible (zip entry timestamps) | wording corrected to "repeatable process"; all recorded hashes regenerated from the final source (below) |
+| P3-1 | `BatchQueue.run(external_cancel)` inert during the planning phase | documented as known limitation #9 in the release notes; no caller affected; semantics unchanged |
+| P3-2 | three GUI test modules read real user settings on standalone runs | all import `tests.settings_harness` now |
+
+### Re-verification evidence (2026-09-26)
+
+- Full suite (`PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen PYTHONFAULTHANDLER=1`):
+  **253 tests, `OK`, exit 0 — three consecutive runs** (logs `phase3_full_suite_1..3.log`);
+  **0 orphan `7z.exe` processes after each run**.
+- GUI module pair (`tests.test_gui_lifecycle` + `tests.test_gui_entrypoint`):
+  **20 consecutive passes** (logs `phase3_gui_pair_1..20.log`); pre-fix baseline failed at run 11 of 20.
+- HKCU: portable smoke `shell register`/`unregister` round trip leaves the `HKCU\Software\DuctZip`
+  snapshot **key-identical** (11/11 portable smoke rows PASS).
+- Artifacts rebuilt from final source (table below).
+
+| Artifact | Value |
+| --- | --- |
+| `dist/DuctZip-1.0.0rc1-portable.zip` | 1,200,605 bytes, sha256 `886f3bc74aca2e54d324b58519eaaa065695fda742630973987b56a349dca135` |
+| `dist/build-manifest.json` | `git_commit=6d88b09`, **`git_dirty=true`**, `worktree_diff_sha256=d4449a46…65a39`, `python=3.13.7`, `bundled_7zip=true`, 30 files with per-file sha256 (supersedes the Phase 7 manifest caveat) |
+| `dist/ductzip-1.0.0rc1-py3-none-any.whl` | 54,393 bytes, sha256 `ced8c72c17a41874327b0c168424275d042728bd3fc730b58ba37e52b680f401` |
+
+- Isolated smokes: portable extraction 11/11 PASS (`C:\tmp\dz_portable_smoke_rc.py`: bundled-backend
+  doctor, Chinese+space list/extract round trip, in-package settings, HKCU round trip);
+  wheel in a clean venv 8/8 PASS (`C:\tmp\dz_wheel_smoke_rc.py`: both entry points, doctor, list,
+  Chinese+space extract round trip, GUI entry without PySide6 → readable message, exit 1).
+- `git diff --check` exit 0. No push/tag/release performed; local checkpoint commits recorded below.
+
+Note: the manifest `worktree_diff_sha256` identifies the tracked diff at build time; the final
+commit for release should rebuild so the shipped manifest records `git_dirty=false`.
+
+---
+
+## Phase 7: v1.0 release-candidate closure — DONE (local checkpoint, not pushed)
+
+**Timestamp:** 2026-09-19
+**Branch:** `main`, base `HEAD` = `6d88b09` (local checkpoint, not pushed)
+
+### §7.1 Baseline and regression suite — PASS
+
+`PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests`
+
+- **247 tests, `OK`, exit 0** (57.3 s on the closing run after the final rebuild and README
+  correction; 48.7 s after all Phase 7 code edits; 52.7 s on the first run). Re-run as the
+  closing gate after every source and documentation change.
+- **0 skips.** There is no skip to justify: the bundled `vendor/7zip` backend makes every
+  real-backend test actually run, and the env-provided `tests/让子弹飞（二）.rar` fixture
+  (§10.2 #7) is present.
+- No network access. The only external process any test starts is the local 7-Zip backend or a
+  generated fake one; nothing opens a socket.
+- No residue: tests write only into `tempfile.TemporaryDirectory`. `git status --short` is
+  identical before and after the run.
+
+Test count trail: 230 (Phase 6) → 243 (Phase 7 first pass) → 245 (engine lifecycle + GUI
+entry point regressions) → **247** (console-encoding regressions, §7.3 below).
+
+### §7.2 Packaging and dependency checks — PASS
+
+| Command | Result |
+| --- | --- |
+| `python -m pip check` | exit 0, `No broken requirements found.` |
+| `python -m pip wheel . --no-deps --wheel-dir C:\tmp\dz-wheel` | exit 0 → `ductzip-1.0.0rc1-py3-none-any.whl`, 53,339 bytes, sha256 `1c528ca8…f7af` |
+| rebuilt after the README roadmap correction | `dist/ductzip-1.0.0rc1-py3-none-any.whl`, **53,518 bytes**, sha256 `5999558d24beb4bf7f2436a31dcc124f26747708ed48758574a68f826845b4fd`. The wheel embeds `README.md` as its long description, so a README edit changes it; the clean-venv block below was **re-run against this rebuild** (version, `doctor`, `list`, `extract` round trip, GUI entry point, `shell status`) and reproduced its results. **Superseded by the 2026-09-26 rebuild (54,393 bytes, `ced8c72c…f401`) at the top of this file.** |
+
+- Wheel name/version match `pyproject.toml` (`name = "ductzip"`, `version = "1.0.0rc1"`).
+- Wheel contents inspected: 25 entries, top level `ductzip/` + `ductzip-1.0.0rc1.dist-info/`
+  only. No tests, no `__pycache__`/`.pyc`, no `docs/`, no `dist/`, no fixtures.
+- Clean venv (`C:\tmp\dz-venv2`, `python -m venv`) install of that wheel: exit 0, and both
+  entry points appear — `Scripts\ductzip.exe`, `Scripts\ductzip-gui.exe`.
+  - `ductzip doctor` → exit 0; `ductzip --help` → exit 0.
+  - `ductzip-gui` (PySide6 absent) → exit 1 with the actionable message, no traceback.
+  - `pip check` inside the venv → exit 0.
+  - Real extraction with the installed wheel from a Chinese+spaced archive to a Chinese+spaced
+    output directory: exit 0, `list` printed the documented `f<TAB>21<TAB>中文 文件.txt` row,
+    content round-tripped.
+
+**Recorded substitutes** (LONG_TASK §7 preamble allows these when the environment requires it):
+
+1. `pip wheel` needs default build isolation, which fetches `setuptools>=68` from PyPI.
+   `pypi.org` is unreachable from this machine (TLS `SSLEOFError`), and `--no-build-isolation`
+   cannot work because neither the dev interpreter nor a fresh venv has `setuptools`. Substitute:
+   `--index-url https://pypi.tuna.tsinghua.edu.cn/simple`. Same wheel, same resolver, mirror host.
+2. `rc=$?` after a pipeline reports the *last* command's status, which made `ductzip-gui` look
+   like exit 0 on a first attempt. Re-measured with output redirected to files: gui=1, doctor=0,
+   `--help`=0, usage error=2.
+
+### §7.3 CLI acceptance — PASS (41/41 rows, transcript in `C:\tmp\s73.log`)
+
+Driver: `python C:\tmp\s73_cli_acceptance.py` (kept outside the repository; it builds its own
+fixtures with the bundled backend and drives the real CLI as a subprocess). **41 rows, 0
+failures, exit 0.**
+
+| Group | Rows | Result |
+| --- | --- | --- |
+| A. `doctor` / usage / exit codes (0, 1, 2) | 5 | PASS |
+| B. `list` / `test` incl. corrupt, unsupported, missing, RAR | 9 | PASS |
+| C. Chinese and spaced paths | 3 | PASS |
+| D. Smart Output single vs multi top-level | 2 | PASS |
+| E. Conflict strategies merge / rename / cancel | 3 | PASS |
+| F. Overwrite policies skip / overwrite / rename | 3 | PASS |
+| G. Passwords (required / wrong / correct / test) | 7 | PASS |
+| H. Missing backend | 2 | PASS |
+| I. Traversal blocked, nothing written outside the boundary | 1 | PASS |
+| J. Batch mixed, retry, missing archive | 4 | PASS |
+| K. Real Ctrl+Break → 130, backend reaped in 0.77 s | 2 | PASS |
+
+The run was repeated after the engine fix in §7.4 (it touches the cancellable path batch
+cancellation uses); the numbers above are the post-fix run.
+
+### Defect fixes from §7.3 (all with regression tests)
+
+1. **Backend could prompt for a password.** With no password argument, 7-Zip prints
+   `Enter password (will not be echoed):` and reads the console. DuctZip neither displayed
+   nor answered it: interactively the command appeared to hang, non-interactively the
+   backend died with `Break signaled` and was reported as "压缩包可能已损坏或格式不受支持".
+   Fix: `_password_args` always emits a switch (empty `-p` = "empty password, do not ask"),
+   and all three backend process launches pass `stdin=subprocess.DEVNULL`.
+2. **"Password required" was unreachable.** Once the empty `-p` suppresses the prompt,
+   7-Zip reports the same `Wrong password?` text whether no password was given or the given
+   one was wrong. Fix: `_map_sevenzip_error(..., password_supplied=...)`, supplied by the
+   caller — `PasswordRequired` ("该压缩包需要密码。") when none was provided, `WrongPassword`
+   ("密码错误。") when one was. Raw backend output stays on `.detail`, never in the message.
+3. **Ctrl+Break hard-killed DuctZip.** A plain Python process has no `CTRL_BREAK_EVENT`
+   handler, so the console default applied: exit `0xC000013A`, no message, backend left
+   running. Measured against a control process (`python -c "time.sleep(30)"`) to confirm it
+   was a process-wide property, not DuctZip's own handler. Fix: `cli._interruptible()`
+   installs `SIGBREAK → default_int_handler` for the duration of a command and restores the
+   previous handler; every command now maps an interrupt to "已取消：正在停止..." and exit 130.
+   Single-archive `extract` previously had no cancellation handling at all.
+4. **Command output depended on the machine's console code page** (found by the §7.3 re-run).
+   Python encodes *redirected* streams with the ANSI code page — cp936 here, cp1252 on an
+   English install — so `ductzip list` died with an unhandled `UnicodeEncodeError` there
+   instead of printing the listing, and Chinese diagnostics reached a redirected file as
+   mojibake. Reproduced with `PYTHONIOENCODING=cp1252`: `ductzip test` → traceback, exit 1,
+   empty stdout. Fix: `cli._configure_console_output()` fixes stdout/stderr to UTF-8
+   (with `replace`/`backslashreplace` handlers) before dispatch; attached to a real console
+   nothing changes, because Python already writes through the wide console API there.
+   Regression: `tests/test_cli.py::ConsoleEncodingTests` (2 tests) runs the CLI out of process
+   under `PYTHONIOENCODING=cp1252` — the only way to see this, since the in-process tests
+   capture a `StringIO`, which has no encoding to get wrong. Mutation-checked: with the call
+   neutered both tests fail with the original `UnicodeEncodeError`.
+
+New tests across 1–3: `tests/test_password_handling.py` (9), `tests/test_cli.py::CancellationTests` (2).
+Both sets were mutation-checked (reverted fix → tests fail) so they are not vacuous.
+
+### Documented limitation found by §7.3 (release decision: not implemented)
+
+Cancellation reaps the one backend process DuctZip launched, not the whole descendant tree.
+The bundled `7z.exe` spawns no children, so the shipped form leaves nothing behind; but a
+user who points `--sevenzip` at a `.cmd` wrapper leaves that wrapper's own child (the real
+7-Zip) running after cancel. Measured: the launched wrapper is reaped in 0.77 s, its spawned
+grandchild survives. A Job Object (`KILL_ON_JOB_CLOSE`) would close this, but it means
+reworking the cancellation/reaping path that §7.4/§7.5 already verify, and no acceptance
+criterion requires it. Recorded in `docs/SECURITY.md` under 已知安全边界 and in the release
+notes §5.4.
+
+### §7.4 GUI acceptance — PASS (26/26 rows, transcript in `C:\tmp\s74.log`)
+
+Automated offscreen coverage lives in the suite: `tests/test_gui.py`, `test_gui_batch.py`,
+`test_gui_lifecycle.py`, `test_gui_settings.py`, `test_gui_entrypoint.py` (constructibility,
+state transitions, illegal transitions, bounded close).
+
+Windows UI-automation evidence: `python C:\tmp\s74_gui_acceptance.py` — real Windows, real
+bundled 7-Zip backend, offscreen Qt, driving the actual `MainWindow` through the same slots
+the widgets are wired to while pumping the event loop. **26 rows, 0 failures.**
+
+| Group | Rows | What the evidence shows |
+| --- | --- | --- |
+| A. Window state | 1 | title `DuctZip`, Extract enabled / Cancel disabled / Open Folder disabled, password field masked, empty preview |
+| B. Preview and stale state | 5 | Chinese+spaced archive → 3 rows; single top-level lands in the requested dir; multi top-level lands in `out_multi\multi`; switching the archive clears rows, entries, open-folder state and conflict summary immediately; clearing the path resets everything |
+| C. Real extraction, responsiveness, progress, terminal state | 4 | real extraction to a Chinese+space output dir with a Chinese filename; 9 heartbeats during a 0.30 s extract; 43 heartbeats and 6 distinct progress values on the big archive (1.35 s); log tail `Completed: …` |
+| D. Cancel | 2 | cancelled while running, stopped in **63 ms**, 0 leftover backend processes; log says `Cancelled` and Open Folder stays disabled |
+| E. Password | 5 | preview after the correct password; wrong password → `密码错误。` with no password in the log; correct password extracts; masked by default and toggled by Show; no password → `该压缩包需要密码。` (not a corruption message) |
+| F. Conflicts | 3 | summary `1 existing target(s): photos`; `cancel` fails loudly and leaves the original file untouched; `rename` keeps the original and writes `a_1.txt` |
+| G. Batch | 5 | enqueue 2 and enable Start; a running task cannot be removed (illegal transition refused); mixed batch isolates one success and one failure; a completed task opens its output dir; cancel-all stops in **0.02 s** with no leftover backend |
+| H. Close while busy | 1 | close during extraction returns in **41 ms** with 0 leftover backend processes |
+
+Two adaptations, recorded as evidence rather than hidden: `QMessageBox` is auto-answered and
+its **text captured** (a modal cannot be clicked in a headless harness, and the text is what
+the "errors are understandable" criterion is about), and `QDesktopServices.openUrl` is
+captured instead of launching Explorer.
+
+Three harness bugs were found and fixed during this run — all in the driver, not the product:
+B1 counted 3 preview rows (the zip also lists the `photos` directory entry); B3 expected the
+final-output field to be empty right after an archive switch, but the product synchronously
+recomputes it from the empty listing and refines it when the preview lands (the row now
+asserts immediate *state invalidation* plus a separate row for the derived directory); C1
+expected the opened URL to contain `photos` when it is the final output directory. A `pump()`
+helper that treated index `0` as falsy and two f-strings that printed a literal `\n` were also
+corrected.
+
+### §7.4 GUI acceptance — defect found and fixed
+
+The deadlock below was found by this run, not by any unit test: it is listing-size dependent.
+
+**Listing a large archive could hang forever on the cancellable path** (GUI preview, batch
+planning, any `cancel_event` caller). `_run` polled the child for exit and only read its pipes
+*after* it exited, so a listing bigger than the OS pipe buffer deadlocked: the backend blocked
+in `write()` and never exited, while DuctZip waited for it to exit. Two `7z l -slt -p big.zip`
+processes sat for ≥9 minutes; the same archive listed in 0.05 s through the non-cancellable
+path, which proves it was the polling loop and not the archive. Reproduced deterministically
+with a fake backend emitting a 145 KiB listing. Fix: drain through
+`communicate(timeout=0.05)` so both pipes are read concurrently with the wait; cancellation
+still terminates the process and closes the pipes directly, without draining (draining can
+block on a surviving grandchild holding the pipe's write end). Verified fail-before (32 s
+timeout) / pass-after (4.0 s), and
+`tests/test_engine_lifecycle.py::CancellableListingDrainTests` (2 tests) pins it — one asserts
+a 3000-entry listing completes, one asserts it is still cancellable. Recorded in `CHANGELOG.md`.
+
+Also fixed in this phase: a clean venv running `ductzip-gui` without PySide6 emitted a raw
+`ModuleNotFoundError` traceback instead of the required comprehensible error, because the
+friendly message in `gui/app.py` was unreachable — an unguarded `from . import workers`
+(which imports Qt at module level) ran first. The guard moved to the entry point:
+`ductzip.gui.main` (used by both `ductzip-gui` and `python -m ductzip.gui`) converts only a
+genuine PySide6 failure into an actionable message — including a native message box when
+`pythonw` gives it no console — and re-raises anything else so a real defect keeps its
+traceback. New tests: `tests/test_gui_entrypoint.py` (2).
+
+### §7.5 Security acceptance — PASS (mapping to existing evidence)
+
+| Requirement | Evidence |
+| --- | --- |
+| Engine-level pre-extraction listing and traversal validation stay mandatory even when callers supply a listing | `tests/test_engine_lifecycle.py::ArchiveMutationBoundaryTests` (a forged plan listing changes nothing about what is extracted), `tests/test_extraction_service.py`; the engine takes its own fresh listing before every real extraction |
+| Regression tests for relative traversal, absolute/UNC/device-style paths, mixed separators, case behaviour, forged/stale planning data | `tests/test_security.py::PathValidationMatrixTests` (40+-case matrix), `TraversalIntegrationTests` (backslash traversal blocked end-to-end with the real backend), `tests/test_engine_lifecycle.py::WindowsSpecialPathValidationTests` (reserved device names incl. extensions/case/trailing dots), `ArchiveMutationBoundaryTests` |
+| Link/Junction/reparse-point behaviour and archive replacement races tested or documented as unsupported with a release decision | reparse points are never followed (MOTW propagation explicitly skips them: `tests/test_motw.py`); links/junctions and TOCTOU are documented as unsupported/not-eliminated in `docs/SECURITY.md` and release notes §5.5–5.6 |
+| Extraction never writes outside the approved output boundary in supported scenarios | `tests/test_security.py` traversal cases assert the output directory was not created; §7.3 group I asserts the same end-to-end |
+| Logs redact passwords and avoid dumping raw backend output to normal users | `tests/test_password_handling.py` (9, incl. `test_raw_backend_output_never_reaches_the_user_message`), `tests/test_security.py::PasswordNonLeakageTests`; §7.4 rows E1/E3 assert the password never appears in the GUI log |
+| No download/update/telemetry/network behaviour added without explicit user approval | the product makes no network call; commitment recorded in `docs/SECURITY.md`; §7.7 audit found no such code |
+
+Suite sizes: `test_security.py` 12, `test_motw.py` 10, `test_password_handling.py` 9,
+`test_discovery.py` 6, `test_engine_lifecycle.py` 12.
+
+### §7.6 Windows integration acceptance — PASS
+
+Unit level: `tests/test_shell_integration.py` (16) — only scoped keys written, idempotent
+registration, `unregister` removes everything and is safe when already clean, recovery from
+partial corruption, `status` reporting a stale launcher and missing verbs, verb/open command
+quoting and placeholder protocol for both launcher kinds, and a real-HKCU round trip
+(`WinRegistryRoundTripTests::test_register_status_unregister_real_hkcu`).
+
+End-to-end level, on the **extracted portable package** with the real HKCU
+(`python C:\tmp\dz_shell_roundtrip.py`, transcript `C:\tmp\dz_shell.log`): **8/8 rows PASS.**
+
+- W1 baseline clean (no DuctZip-owned key anywhere under `Software\Classes`, no app key, no
+  `OpenWithProgids` value); W2 `status` says 未注册.
+- W3 `register` writes 17 named keys (ProgID + 8 extensions × 2 verbs) and makes DuctZip
+  visible in "Open with" for all 8 extensions.
+- W4 the recorded extract-here verb is
+  `"C:\tmp\dz-psmoke\DuctZip-1.0.0rc1\ductzip.cmd" shell extract-here "%1"` and the ProgID
+  open command is `"…\DuctZip GUI.cmd" "%1"` — the portable launchers, with the documented
+  protocol, not a module invocation.
+- W5 repeated `register` is idempotent: the snapshot is identical except the `RegisteredAt`
+  metadata timestamp the code refreshes on purpose (`14:30:02Z` → `14:30:06Z`).
+- W6 `status` reports 已注册 and names the launcher.
+- **W7 `unregister` is an exact reversal**: the post-unregister snapshot equals the
+  pre-registration snapshot key by key, with no `DuctZip*` key left anywhere under
+  `Software\Classes` and no residual `OpenWithProgids` value.
+- W8 `status` returns to 未注册. The machine is left exactly as it was found.
+
+Three driver assumptions were corrected (all in the harness, not the product): the
+`OpenWithProgids` convention is a value *named* for the ProgID with empty data, so presence
+is what must be asserted; the `open` verb pointing at the GUI launcher is the documented
+design, not a mismatch; and idempotency had to be judged excluding `RegisteredAt`.
+
+### §7.7 Documentation and repository acceptance — PASS
+
+- `git status --short`: **18 modified + 4 untracked**, every one intentional and listed below.
+- `git diff --check`: exit 0, no whitespace errors (all output is the CRLF advisory below).
+  The 18 `LF will be replaced by CRLF` warnings are a configuration artifact, not hidden by
+  conversion: `core.autocrlf=true` with no `.gitattributes`, and every file on disk is
+  uniformly LF. Nothing was normalised repo-wide.
+- `git diff --stat`: 18 files changed, 858 insertions(+), 125 deletions(-) (the final count, after the README roadmap correction; 853/124 before it).
+  `git diff --cached --stat`: empty (nothing staged).
+- `git ls-files --others --exclude-standard`: `docs/USER_MANUAL.md`,
+  `docs/RELEASE_NOTES_1.0.0rc1.md`, `tests/test_gui_entrypoint.py`,
+  `tests/test_password_handling.py`.
+- No secrets, credentials, tokens, private fixtures, local absolute paths in tracked
+  non-vendor files, or generated build/cache files. The only `password`-shaped strings are
+  test fixtures; `C:\tmp\…` paths appear only in driver scripts kept **outside** the repo.
+- No unresolved production `TODO`, placeholder behaviour, `NotImplementedError`, or silent
+  stub in `src/`.
+- Version / test counts / features / limitations / roadmap checkboxes / project status /
+  changelog / release notes agree: all read **1.0.0rc1 / 247 tests** at the end of Phase 7
+  (2026-09-26 RC closure raised the count to **253**; see the top section).
+
+Files changed or added in Phase 7:
+
+| File | Why |
+| --- | --- |
+| `src/ductzip/archive/sevenzip.py` | pipe-drain deadlock fix in the cancellable `_run` path |
+| `src/ductzip/cli.py` | console encoding fix; Ctrl+Break handler (earlier in phase) |
+| `src/ductzip/gui/__init__.py`, `gui/__main__.py` | PySide6 guard moved to the entry point |
+| `src/ductzip/gui/app.py` | GUI fixes from earlier in the phase |
+| `tests/test_cli.py` | `ConsoleEncodingTests` (2) |
+| `tests/test_engine_lifecycle.py` | `CancellableListingDrainTests` (2) |
+| `tests/test_gui_entrypoint.py` (new) | missing-PySide6 entry-point behaviour (2) |
+| `tests/test_password_handling.py` (new) | password switch never omitted, required vs wrong, no leakage (9) |
+| `docs/USER_MANUAL.md` (new) | end-user manual (§7.7 documentation gap) |
+| `docs/RELEASE_NOTES_1.0.0rc1.md` (new) | release notes + §7 evidence summary |
+| `docs/SECURITY.md`, `docs/ROADMAP.md`, `docs/DuctZip_RESUME_FACTS.md`, `docs/RELEASE_CHECKLIST.md` | same-phase source-of-truth sync |
+| `CHANGELOG.md`, `PROJECT_STATUS.md`, `README.md`, `PROGRESS.md` | changelog, status, doc index, this ledger |
+| `pyproject.toml` | version `1.0.0rc1` |
+| `src/ductzip/__init__.py` | version `1.0.0rc1` |
+| `scripts/build_portable.py` | single top-level folder, enforced backend digests |
+
+### §7.8 Static-quality tools — UNKNOWN (not claimed)
+
+The repository configures no formatter, linter, or type checker. Per LONG_TASK §7.8 this
+stays **UNKNOWN** and **no lint/typecheck success is claimed anywhere**. Phase 1 introduced
+no such tool, so there is nothing to pin or run.
+
+### Release artifacts (this phase, not published)
+
+| Artifact | Value |
+| --- | --- |
+| `dist/DuctZip-1.0.0rc1-portable.zip` | 1,183,597 bytes, sha256 `90f61d4d8da8e6100e813f674df3c8387fa4acdae935cc75ce2ca89d1f4853fc` (rebuilt after the CLI encoding fix **and** after the README roadmap line was corrected; `.sha256` file agrees with a fresh measurement) — **superseded by the 2026-09-26 rebuild at the top of this file** |
+| `dist/build-manifest.json` | regenerated with the same build; records `git_commit=6d88b09`, `python=3.13.7`, `bundled_7zip=true` and the backend's version/upstream URL/installer SHA-256, with no build-host absolute paths. **Caveat recorded:** that commit is the `HEAD` the build ran on, and the Phase 7 changes are still uncommitted, so the manifest does not by itself identify the exact source of this artifact. |
+| Portable extraction layout | single top-level `DuctZip-1.0.0rc1\` containing the launchers, `src/`, `vendor/`, and the docs |
+| Portable smoke (isolated copy) | **5/5 rows PASS** (transcript `C:\tmp\dz_portable_smoke.py`, **re-run on the final rebuild**): `doctor` resolves the **bundled** backend; Chinese+spaced archive lists and tests via `ductzip.cmd`; extraction into a Chinese+spaced output dir round-trips content; settings are written inside the portable folder |
+| Rebuild note | The artifact was rebuilt once more after a **README roadmap line was corrected** (`v0.7 … (packaging in progress)` → v0.7 as shipped plus a `v1.0.0rc1` line), because `README.md` is copied into the portable zip. The registry round trip (§7.6, 8/8) and the GUI-launcher check were **re-run against the re-extracted rebuild** and reproduced their results; a fresh isolated extraction was used, and the fixture the smoke driver expects had to be recreated after that extraction wiped the scratch tree. |
+
+Not done, and deliberately left to the user: **no push, no tag, no GitHub release, no upload.**
+
+### Cleanup
+
+Two stray Python processes were left running by an interrupted acceptance run. Killing them
+was denied by the permission classifier twice, so they are reported here rather than
+force-killed: **PIDs 2936 and 41524**. They hold no files in the repository and do not affect
+any recorded evidence; the user should close them manually.
+
+## Phase 6 (continued): 7-Zip backend bundling — DONE
 
 **Timestamp:** 2026-09-19
 **Branch:** `main`, base `HEAD` = `d0a8662` (local checkpoint, not pushed)
+**Checkpoint commit:** `6d88b09 feat: bundle 7-Zip 26.03 console backend with enforced digest pinning`
+— local only, not pushed. This is the commit Phase 7 was executed on top of.
 
 ### Decision revision — §10.2 #3 (user, 2026-09-19)
 
@@ -82,10 +429,10 @@ was used. `7z2603-x64.exe` was fetched through the officially approved entry poi
 
 ### Still open in Phase 6
 
-- Clean-machine verification beyond isolated-directory smoke on this machine (no second
-  physical machine available; under §10.2 #8 the final claim must be scoped to evidence
-  actually gathered, and this is recorded as a limitation rather than claimed as done).
-- v1.0 version bump — Phase 7.
+- ~~Clean-machine verification~~ — remains a **recorded limitation**, not a gap in this task:
+  no second physical machine is available, so under §10.2 #8 the final claim is scoped to the
+  evidence actually gathered on this host (release notes §5.3).
+- ~~v1.0 version bump~~ — DONE in Phase 7 (`1.0.0rc1`).
 
 ---
 
@@ -174,9 +521,8 @@ file). Original blocker text kept for the record:
 ### Still open in Phase 6
 
 - ~~7-Zip bundling execution~~ — **DONE 2026-09-19** (see the top section).
-- Clean-machine verification beyond isolated-dir smoke (no second physical machine;
-  final claim must be scoped to evidence actually gathered).
-- v1.0 version bump — Phase 7.
+- ~~Clean-machine verification~~ — recorded limitation, see above.
+- ~~v1.0 version bump~~ — DONE in Phase 7 (`1.0.0rc1`).
 
 ---
 
@@ -464,11 +810,25 @@ Phase 0 gate: **PASS** — baseline suite and wheel commands pass; no pre-existi
 - 2026-09-18: RAR fixture policy — keep as documented conditional external-fixture test for now; §10.2 item 7 remains open for user decision.
 - 2026-09-19: GUI unit tests use stub engines; real-backend GUI coverage is manual smoke evidence (antivirus scanning of 7z.exe child processes makes real-backend timings nondeterministic, 0.27s–15s+). Recorded in DD-011.
 - 2026-09-19: Safety boundary declared (DD-012): links/Junctions/reparse points = unsupported, not guarded; engine fresh listing is the sole safety authority. Never weaken to pass tests.
+- 2026-09-19 (§10.2, user): #1 local commits allowed, no push; #2 v1.0 = portable zip; #3 7-Zip bundling approved via a substitute verification chain; #4 HKCU-only registration; #5 MOTW propagation is a v1.0 blocker; #6 unsigned RC allowed with documented disclosure; #7 keep the env-provided RAR fixture; #8 deferred items allowed when explicitly recorded.
+- 2026-09-19 (Phase 7): release actions — `git push`, tags, GitHub release, any upload — are **out of scope for this task** and left to the user. Only local checkpoint commits are made.
 
 ## Last known-good behavior
 
-127/127 unit tests pass (incl. 20 batch-queue + 13 engine-lifecycle + 7 GUI-lifecycle + 19 GUI tests); wheel builds with `ductzip/core/queue.py`; `doctor` discovers `D:\7-Zip\7z.exe`.
+**253/253 unit tests pass** (`OK`, 0 skips, exit 0 — three consecutive full runs on
+2026-09-26) on `1.0.0rc1`. Portable package builds
+(`dist/DuctZip-1.0.0rc1-portable.zip`, sha256 `886f3bc7…a135`) and smoke-passes from an
+isolated extraction with the bundled backend. Wheel `ductzip-1.0.0rc1-py3-none-any.whl`
+(sha256 `ced8c72c…f401`) installs into a clean venv and exposes both entry points. `doctor` finds
+`vendor/7zip/7z.exe` (7-Zip 26.03) when nothing else is configured.
 
 ## Next smallest step
 
-Phase 3 (v0.5 CLI + GUI batch workflows, LONG_TASK.md Phase 3): batch CLI contract without breaking single-archive commands; GUI multi-selection/drag-drop, queue list with per-task status/progress/error, retry/remove/cancel-current/cancel-all, final output visibility; keep GUI responsive; ensure passwords/raw backend output stay out of normal logs. Read `src/ductzip/cli.py` and `src/ductzip/gui/app.py` first.
+Phase 7 is complete; every MUST acceptance criterion in LONG_TASK.md §7 has a recorded,
+reproduced result (see the §7.x sections above). No further implementation work is pending
+inside the task's scope. What remains is user-owned and explicitly out of scope:
+
+1. Manual release actions — review the diff, commit, and (if desired) push / tag / publish.
+2. Close the two stray Python processes noted under Cleanup.
+3. Optionally verify on a second physical machine; the current conclusions are limited to the
+   evidence actually obtained on this host (§10.2 #8).

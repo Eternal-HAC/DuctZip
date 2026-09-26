@@ -1,8 +1,8 @@
 # DuctZip
 
-DuctZip is a lightweight Windows archive extraction tool. The current version is a v0.7 CLI, archive-core, batch queue, Windows Explorer integration, and PySide6 GUI prototype focused on reliably finding a local 7-Zip backend, inspecting archives, extracting files, and returning clear user-facing results.
+DuctZip is a lightweight Windows archive extraction tool. This is **v1.0.0rc1**, a release candidate covering the CLI, archive core, batch queue, Windows Explorer integration, and an optional PySide6 GUI. It ships a bundled 7-Zip console backend, so extraction works on a machine with no 7-Zip installed.
 
-The project is intentionally scoped as an engineering prototype for a future desktop extractor. It documents product research, architecture, roadmap decisions, and test coverage so the repository can be reviewed as a maintainable open-source project rather than a one-off script.
+The project is scoped as a focused extractor rather than a general archive manager: it does not compress, and it never phones home. Scope, architecture, decisions, and test coverage are documented in this repository so it can be reviewed as a maintainable project rather than a one-off script.
 
 ## Features
 
@@ -99,6 +99,8 @@ $env:PYTHONPATH = "src"
 python -m ductzip extract "secret.7z" --output "output-dir" --password-prompt
 ```
 
+DuctZip always prompts for the password itself (`--password-prompt`, or the GUI dialog) and hands the answer to the backend. The backend is never allowed to ask: it runs with its console input closed, so extraction cannot stall on a prompt DuctZip does not own. An encrypted archive with no password given reports `该压缩包需要密码。`; a wrong password reports `密码错误。`. Passwords are never printed, logged, or written to settings.
+
 Choose how existing files are handled:
 
 ```powershell
@@ -108,7 +110,13 @@ python -m ductzip extract "archive.zip" --output "output-dir" --overwrite-policy
 python -m ductzip extract "archive.zip" --output "output-dir" --overwrite-policy rename
 ```
 
-The default policy is `skip`.
+The default policy is `skip`. It applies per file, inside the final directory:
+
+| Policy | An existing `photos/a.txt` |
+| --- | --- |
+| `skip` (default) | kept as it is; the archived copy is not written |
+| `overwrite` | replaced by the archived copy |
+| `rename` | kept; the archived copy is written alongside as `a_1.txt` |
 
 Avoid scattered files and duplicate top-level folders when extracting:
 
@@ -129,7 +137,15 @@ python -m ductzip extract "archive.zip" --output "output-dir" --conflict-strateg
 python -m ductzip extract "archive.zip" --output "output-dir" --conflict-strategy cancel
 ```
 
-The default conflict strategy is `merge`.
+The default conflict strategy is `merge`. A conflict is a **top-level entry the archive shares with the target directory** — for example extracting `photos.zip` into a directory that already has a `photos` folder:
+
+| Strategy | What happens |
+| --- | --- |
+| `merge` (default) | extraction proceeds into the existing entry; the overwrite policy decides each colliding file |
+| `rename` | extraction proceeds, but a colliding file is written under a new name instead of being skipped or replaced |
+| `cancel` | nothing is written; the conflicting entry is named and the command exits 1 |
+
+`--smart-output` decides *where* the archive lands, `--conflict-strategy` decides what happens when that place is already occupied, and `--overwrite-policy` decides what happens to individual files inside it.
 
 Extract several archives into one shared output root:
 
@@ -139,7 +155,18 @@ python -m ductzip batch-extract "photos.zip" "docs.7z" "old.rar" --output "extra
 python -m ductzip batch-extract *.zip --output "extracted" --retries 2 --verbose
 ```
 
-`batch-extract` runs the archives strictly in the order given, one at a time. Each task reports `[完成]` (completed), `[失败]` (failed), or `[取消]` (cancelled), and the command exits with 0 when everything completed, 1 when at least one task failed, 130 when cancelled with Ctrl+C, and 2 on a usage error. `--retries N` re-runs failed tasks up to N times; Smart output and conflict strategies work per task.
+`batch-extract` runs the archives strictly in the order given, one at a time. Each task reports `[完成]` (completed), `[失败]` (failed), or `[取消]` (cancelled), and the command exits with 0 when everything completed, 1 when at least one task failed, 130 when cancelled, and 2 on a usage error. `--retries N` re-runs failed tasks up to N times; Smart output and conflict strategies work per task.
+
+Every command uses the same exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | the work completed |
+| 1 | the archive failed, or one or more batch tasks failed |
+| 2 | usage error (unknown command, missing required option) |
+| 130 | cancelled by the user (Ctrl+C, or Ctrl+Break) |
+
+Cancellation stops the backend and waits for it to exit before returning, so nothing is left writing into the output directory.
 
 Launch the GUI prototype:
 
@@ -223,7 +250,8 @@ $env:QT_QPA_PLATFORM = "offscreen"
 - v0.4.1: Smart Output Semantics formalized in `ductzip.core` with a shared CLI/GUI orchestration service.
 - v0.5: batch extraction.
 - v0.6: Windows Explorer integration.
-- v0.7: settings, security hardening, and privacy documentation (packaging in progress).
+- v0.7: settings, security hardening, and privacy documentation; portable packaging and the bundled 7-Zip backend.
+- v1.0.0rc1: release-candidate closure — every LONG_TASK §7 acceptance item executed and recorded, plus the end-user manual, release notes, and security statement. Not yet pushed, tagged, or published.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed plan.
 
@@ -231,6 +259,9 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed plan.
 
 - [`PROJECT_STATUS.md`](PROJECT_STATUS.md)
 - [`CHANGELOG.md`](CHANGELOG.md)
+- [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md) — end-user manual: install, first run, CLI/GUI, context menu, passwords, conflicts, uninstall, troubleshooting
+- [`docs/RELEASE_NOTES_1.0.0rc1.md`](docs/RELEASE_NOTES_1.0.0rc1.md) — 1.0.0rc1 release notes: artifacts, environments, the recorded limitations, and the §7 acceptance evidence summary
+- [`docs/SECURITY.md`](docs/SECURITY.md) — security and privacy statement, password handling, known boundaries
 - [`docs/PRD.md`](docs/PRD.md)
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)

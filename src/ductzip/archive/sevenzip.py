@@ -199,7 +199,7 @@ class SevenZipCliEngine:
         )
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "").strip()
-            raise _map_sevenzip_error(detail)
+            raise _map_sevenzip_error(detail, password_supplied=bool(password))
 
         return ArchiveListing(
             archive_path=archive.resolve(),
@@ -222,7 +222,7 @@ class SevenZipCliEngine:
         completed = self._run(["t", *_password_args(password), str(archive)], cancel_event=cancel_event)
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "").strip()
-            raise _map_sevenzip_error(detail)
+            raise _map_sevenzip_error(detail, password_supplied=bool(password))
 
         return TestResult(
             archive_path=archive.resolve(),
@@ -300,6 +300,7 @@ class SevenZipCliEngine:
                 text=True,
                 errors="replace",
                 bufsize=1,
+                stdin=subprocess.DEVNULL,
             )
         except OSError as exc:
             raise UnknownArchiveError() from exc
@@ -369,7 +370,7 @@ class SevenZipCliEngine:
         if returncode != 0:
             detail = stdout.strip()
             yield ProgressEvent(kind="failed", message=detail)
-            raise _map_sevenzip_error(detail)
+            raise _map_sevenzip_error(detail, password_supplied=bool(password))
 
         result = ExtractResult(
             archive_path=archive.resolve(),
@@ -394,6 +395,10 @@ class SevenZipCliEngine:
                     text=True,
                     errors="replace",
                     check=False,
+                    # The backend must never read the console: an inherited stdin
+                    # lets 7-Zip block on its own password prompt, which DuctZip
+                    # neither shows nor answers.
+                    stdin=subprocess.DEVNULL,
                 )
             except OSError as exc:
                 raise UnknownArchiveError() from exc
@@ -407,6 +412,7 @@ class SevenZipCliEngine:
                 stderr=subprocess.PIPE,
                 text=True,
                 errors="replace",
+                stdin=subprocess.DEVNULL,
             )
         except OSError as exc:
             raise UnknownArchiveError() from exc
@@ -417,8 +423,8 @@ class SevenZipCliEngine:
                     _terminate_process(process)
                     # Do NOT communicate() here: draining until EOF can block
                     # for as long as a surviving grandchild keeps the pipe's
-                    # write end open. No thread reads these pipes, so closing
-                    # them directly is safe and immediate.
+                    # write end open. Any reader threads started by an earlier
+                    # communicate() are daemons that end when the pipes close.
                     for stream in (process.stdout, process.stderr):
                         if stream is not None:
                             try:
@@ -427,11 +433,16 @@ class SevenZipCliEngine:
                                 pass
                     raise ArchiveCancelled()
                 try:
-                    process.wait(timeout=0.05)
+                    # communicate(timeout=...) starts draining both pipes
+                    # *concurrently* and then waits. Reading only after the
+                    # child exits would deadlock on any output larger than the
+                    # pipe buffer: the child blocks in write() and never exits,
+                    # so the parent waits forever (listings of large archives
+                    # exceed the buffer easily).
+                    stdout, stderr = process.communicate(timeout=0.05)
                     break
                 except subprocess.TimeoutExpired:
                     continue
-            stdout, stderr = process.communicate()
             return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
         finally:
             _reap_process(process)
@@ -578,7 +589,17 @@ def _parse_current_file(token: str) -> str | None:
 
 
 def _password_args(password: str | None) -> list[str]:
-    return [f"-p{password}"] if password else []
+    """Always pass a password argument, so the backend never prompts.
+
+    A bare ``-p`` means "empty password, do not ask". Without it, 7-Zip writes
+    ``Enter password (will not be echoed):`` and reads the console — DuctZip
+    does not own that prompt, so in an interactive shell the command appears to
+    hang, and in a non-interactive one the backend dies with ``Break signaled``
+    and is reported as a generic failure. DuctZip asks for passwords itself
+    (``--password`` / ``--password-prompt`` / the GUI dialog); the backend must
+    only ever be told the answer.
+    """
+    return [f"-p{password}"] if password else ["-p"]
 
 
 def _overwrite_arg(policy: OverwritePolicy) -> str:
@@ -632,15 +653,22 @@ def _is_safe_archive_path(path: str) -> bool:
     return True
 
 
-def _map_sevenzip_error(output: str) -> ArchiveError:
+def _map_sevenzip_error(output: str, *, password_supplied: bool = True) -> ArchiveError:
+    """Translate raw 7-Zip output into a stable, localized error.
+
+    ``password_supplied`` distinguishes "the archive needs a password" from
+    "the password you gave is wrong": the backend reports the same
+    ``Wrong password?`` text for both once DuctZip passes an empty ``-p``, so
+    the caller supplies the missing half of the fact.
+    """
     normalized = output.lower()
 
     if "wrong password" in normalized or "password is incorrect" in normalized:
-        return WrongPassword()
+        return WrongPassword(detail=output or None) if password_supplied else PasswordRequired(detail=output or None)
     if "password" in normalized and ("enter" in normalized or "required" in normalized):
-        return PasswordRequired()
+        return PasswordRequired(detail=output or None)
     if "unsupported method" in normalized or "unsupported" in normalized:
-        return UnsupportedFormat()
+        return UnsupportedFormat(detail=output or None)
     if (
         "can not open the file as archive" in normalized
         or "cannot open the file as archive" in normalized
@@ -650,9 +678,9 @@ def _map_sevenzip_error(output: str) -> ArchiveError:
         or "data error" in normalized
         or "crc failed" in normalized
     ):
-        return CorruptedArchive()
+        return CorruptedArchive(detail=output or None)
     if "access is denied" in normalized or "permission denied" in normalized:
-        return OutputPermissionDenied()
+        return OutputPermissionDenied(detail=output or None)
 
     # Unknown errors get the stable user-facing message, not a raw backend
     # output dump (which can contain full local paths). The raw output stays

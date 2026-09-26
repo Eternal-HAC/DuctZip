@@ -213,6 +213,37 @@ class ServiceMotwIntegrationTests(unittest.TestCase):
             self.assertEqual(len(service.last_motw_report.failures), 2)
             self.assertEqual(result.output_dir, out.resolve())
 
+    def test_extract_does_not_tag_preexisting_files(self) -> None:
+        """Merge into a directory that already holds local files: MOTW must
+        reach only the files this extraction produced, never pre-existing
+        local content (SECURITY.md: the stream goes onto every *extracted*
+        file). Before the fix, ``propagate_motw`` walked the whole final
+        output directory and tagged local files as downloaded."""
+        require_sevenzip()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            require_ads_support(root)
+            archive = self._make_zip(root)
+            write_zone_identifier(archive, MOTW_CONTENT)
+            out = root / "out"
+            preexisting = out / "docs"
+            preexisting.mkdir(parents=True)
+            local_file = preexisting / "local.txt"
+            local_file.write_text("local content", encoding="utf-8")
+
+            service = ExtractionService()
+            service.extract(archive, out, smart_output=False, conflict_strategy="merge")
+
+            report = service.last_motw_report
+            self.assertIsNotNone(report)
+            self.assertTrue(report.source_had_motw)
+            self.assertEqual(report.failures, ())
+            # Newly extracted files carry the archive's zone...
+            self.assertEqual(read_zone_identifier(out / "docs" / "readme.txt"), MOTW_CONTENT)
+            self.assertEqual(read_zone_identifier(out / "docs" / "extra" / "notes.txt"), MOTW_CONTENT)
+            # ...but the pre-existing local file keeps its own (empty) state.
+            self.assertIsNone(read_zone_identifier(local_file))
+
 
 if __name__ == "__main__":
     unittest.main()

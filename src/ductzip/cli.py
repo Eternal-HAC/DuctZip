@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
 from pathlib import Path
+import signal
 import sys
+from typing import Iterator
 
 from .archive import ArchiveError, SevenZipCliEngine, find_sevenzip, get_sevenzip_version
 from .core import BatchQueue, ExtractionService, archive_logical_name
@@ -180,10 +183,72 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _configure_console_output() -> None:
+    """Make command output independent of the console code page.
+
+    Attached to a real console Python already writes through the wide console
+    API, so nothing changes there. *Redirected* streams are the problem: Python
+    encodes them with the ANSI code page (cp936 here, cp1252 on an English
+    install), so a Chinese entry name is either mojibake for whoever reads the
+    file or -- because stdout's default error handler is ``strict`` -- an
+    unhandled ``UnicodeEncodeError`` that turns ``ductzip list`` into a
+    traceback. Fixing the encoding to UTF-8 makes the bytes the same everywhere,
+    and the replacement handlers keep a stream that cannot encode something at
+    all from ever failing a command that otherwise succeeded.
+    """
+    for stream, errors in ((sys.stdout, "replace"), (sys.stderr, "backslashreplace")):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:  # e.g. a StringIO under test capture.
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors=errors)
+        except (OSError, ValueError):  # pragma: no cover - exotic stream wrappers
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _configure_console_output()
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    with _interruptible():
+        try:
+            return _dispatch(parser, args)
+        except KeyboardInterrupt:
+            # Single-task commands (extract/list/test/doctor) have no queue to
+            # drain; the engine already reaped the backend while unwinding.
+            print("已取消：正在停止...", file=sys.stderr)
+            return EXIT_CANCELLED
+
+
+@contextlib.contextmanager
+def _interruptible() -> Iterator[None]:
+    """Make Ctrl+Break cancel the way Ctrl+C does.
+
+    A plain Python process on Windows installs no handler for
+    ``CTRL_BREAK_EVENT``, so the console default applies and the process is
+    killed outright with ``STATUS_CONTROL_C_EXIT``: no message, exit code
+    0xC000013A instead of the documented 130, and backend children left
+    running. The handler is installed for the duration of the command and the
+    previous one restored afterwards. No-op off Windows and when the caller is
+    not on the main thread, where ``signal.signal`` is unavailable.
+    """
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is None:
+        yield
+        return
+    try:
+        previous = signal.signal(sigbreak, signal.default_int_handler)
+    except ValueError:
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(sigbreak, previous)
+
+
+def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.command == "extract":
         sevenzip, overwrite_policy, conflict_strategy, smart_output = _runtime_prefs(args, smart_default=False)
         try:

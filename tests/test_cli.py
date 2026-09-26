@@ -4,8 +4,10 @@ import contextlib
 import io
 from pathlib import Path
 import os
+import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -25,6 +27,7 @@ from ductzip.archive import (
     find_sevenzip,
 )
 from ductzip.archive.sevenzip import _map_sevenzip_error, _parse_progress_token
+from ductzip import cli
 from ductzip.cli import main
 from ductzip.settings import load_settings, settings_path
 
@@ -731,6 +734,50 @@ class BatchCliTests(unittest.TestCase):
         self.assertEqual(code, 130)
 
 
+class CancellationTests(unittest.TestCase):
+    """Ctrl+Break must cancel the way Ctrl+C does, for every command.
+
+    A plain Python process installs no handler for ``CTRL_BREAK_EVENT``, so the
+    console default applies: the process dies with ``STATUS_CONTROL_C_EXIT``
+    without running cleanup, and the backend it launched survives. The §7.3
+    acceptance run drove this with a real signal and a blocked backend; these
+    tests pin the two halves that are cheap to check in-process.
+    """
+
+    def run_cli(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    @unittest.skipUnless(hasattr(signal, "SIGBREAK"), "CTRL_BREAK_EVENT is Windows-only")
+    def test_sigbreak_is_an_interrupt_while_a_command_runs(self) -> None:
+        previous = signal.getsignal(signal.SIGBREAK)
+
+        with cli._interruptible():
+            self.assertIs(signal.getsignal(signal.SIGBREAK), signal.default_int_handler)
+
+        self.assertIs(signal.getsignal(signal.SIGBREAK), previous)
+
+    def test_interrupt_is_reported_as_cancellation_for_every_command(self) -> None:
+        commands = (
+            ["doctor"],
+            ["list", "a.zip"],
+            ["test", "a.zip"],
+            ["extract", "a.zip", "--output", "out"],
+            ["batch-extract", "a.zip", "--output", "out"],
+            ["settings", "show"],
+        )
+
+        for argv in commands:
+            with self.subTest(command=argv[0]):
+                with patch("ductzip.cli._dispatch", side_effect=KeyboardInterrupt):
+                    code, _, err = self.run_cli(argv)
+
+                self.assertEqual(code, 130)
+                self.assertIn("已取消", err)
+
+
 class ShellCliTests(unittest.TestCase):
     """The Explorer-facing protocol: per-archive output roots, shell exit codes."""
 
@@ -950,6 +997,60 @@ class SettingsCliTests(unittest.TestCase):
             code, out, err = self._run(["doctor"])
             self.assertIn(code, (0, 1))
             self.assertTrue(out or err)
+
+
+class ConsoleEncodingTests(unittest.TestCase):
+    """Command output must not depend on the machine's console code page.
+
+    Only observable out of process: the in-process tests above capture a
+    ``StringIO``, which has no encoding to get wrong, so they cannot see this.
+    ``PYTHONIOENCODING=cp1252`` reproduces what an English Windows install does
+    to a redirected stream -- a code page that cannot represent the Chinese
+    messages at all. Before the fix, ``ductzip test`` died with an unhandled
+    ``UnicodeEncodeError`` there instead of printing its result.
+    """
+
+    def test_chinese_output_survives_a_non_utf8_console_code_page(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake = make_fake_7z(root, exit_code=0, output="Everything is Ok")
+            archive = root / "sample.zip"
+            archive.write_bytes(b"stub")
+
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(repo_root / "src")
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            env["PYTHONIOENCODING"] = "cp1252"
+
+            completed = subprocess.run(
+                [sys.executable, "-m", "ductzip", "test", str(archive), "--sevenzip", str(fake)],
+                capture_output=True,
+                env=env,
+                cwd=str(repo_root),
+            )
+
+            self.assertEqual(
+                completed.returncode, 0, completed.stderr.decode("utf-8", "replace")
+            )
+            self.assertEqual(completed.stdout.decode("utf-8").strip(), "压缩包测试通过。")
+
+    def test_chinese_error_output_survives_a_non_utf8_console_code_page(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(repo_root / "src")
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONIOENCODING"] = "cp1252"
+
+        completed = subprocess.run(
+            [sys.executable, "-m", "ductzip", "list", str(repo_root / "no-such-archive.zip")],
+            capture_output=True,
+            env=env,
+            cwd=str(repo_root),
+        )
+
+        self.assertEqual(completed.returncode, 1)
+        self.assertEqual(completed.stderr.decode("utf-8").strip(), "找不到压缩包。")
 
 
 if __name__ == "__main__":

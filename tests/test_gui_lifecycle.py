@@ -11,6 +11,9 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+import weakref
+
+import tests.settings_harness  # noqa: F401  # force throwaway settings path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -262,6 +265,72 @@ class GuiShutdownTests(unittest.TestCase):
         window = MainWindow()
         window.close()
         self.assertIsNone(window.worker_thread)
+
+    def test_on_worker_finished_holds_worker_until_os_thread_dead(self) -> None:
+        """Teardown-safety invariant: the worker wrapper must not be released
+        (which deletes the underlying C++ object owned by the worker thread)
+        while the OS thread is still running. Before the fix,
+        ``on_worker_finished`` dropped the last reference the moment the
+        queued ``finished`` signal was delivered — inside the window where
+        the OS thread has not exited yet — intermittently crashing the
+        process with access violations / heap corruption / aborts."""
+        from PySide6.QtCore import QObject, QThread
+
+        from ductzip.gui.app import MainWindow
+
+        window = MainWindow()
+        thread = QThread(window)
+        worker = QObject()  # no parent: the Python wrapper owns the C++ object
+        worker.moveToThread(thread)
+        window.worker_thread = thread
+        window.worker = worker
+        window.cancel_event = threading.Event()
+        worker_ref = weakref.ref(worker)
+
+        thread.start()
+        deadline = threading.Event()
+        deadline.wait(0.05)  # let the OS thread reach its event loop
+        self.assertTrue(thread.isRunning())
+
+        # Let the loop exit shortly after teardown begins; quit() posts to
+        # the worker thread's event loop, so the blocking wait in
+        # on_worker_finished is guaranteed to finish.
+        threading.Timer(0.2, thread.quit).start()
+        window.on_worker_finished()
+        del worker  # the window must be the deciding owner
+
+        self.assertFalse(thread.isRunning(), "worker thread should be fully stopped")
+        self.assertIsNone(window.worker_thread)
+        self.assertIsNone(window.worker)
+        self.assertIsNone(worker_ref(), "worker wrapper must be released only after the OS thread died")
+
+    def test_on_batch_thread_finished_holds_worker_until_os_thread_dead(self) -> None:
+        """Same invariant as the extraction path, for the batch worker."""
+        from PySide6.QtCore import QObject, QThread
+
+        from ductzip.gui.app import MainWindow
+
+        window = MainWindow()
+        thread = QThread(window)
+        worker = QObject()
+        worker.moveToThread(thread)
+        window.batch_thread = thread
+        window.batch_worker = worker
+        worker_ref = weakref.ref(worker)
+
+        thread.start()
+        deadline = threading.Event()
+        deadline.wait(0.05)
+        self.assertTrue(thread.isRunning())
+
+        threading.Timer(0.2, thread.quit).start()
+        window.on_batch_thread_finished()
+        del worker  # the window must be the deciding owner
+
+        self.assertFalse(thread.isRunning(), "batch thread should be fully stopped")
+        self.assertIsNone(window.batch_thread)
+        self.assertIsNone(window.batch_worker)
+        self.assertIsNone(worker_ref(), "batch worker wrapper must be released only after the OS thread died")
 
 
 if __name__ == "__main__":

@@ -225,12 +225,13 @@
 任务：
 
 - [x] 完成 README 初版。
-- [ ] 完成用户手册。
-- [ ] 完成安装说明。
-- [ ] 完成卸载说明。
+- [x] 完成用户手册。（`docs/USER_MANUAL.md`）
+- [x] 完成安装说明。（`docs/USER_MANUAL.md` §2 运行环境、§3 安装：便携包 / 源码与 wheel / GUI 依赖）
+- [x] 完成卸载说明。（`docs/USER_MANUAL.md` §13 卸载：便携包删目录、pip 卸载、右键菜单精确撤销）
 - [x] 完成 CHANGELOG。
-- [x] 完成基础自动化测试（144 项：单元、队列、CLI、GUI offscreen、引擎生命周期；真实后端集成测试在检测到 7-Zip 时执行）。
-- [ ] 完成发布包。
+- [x] 完成基础自动化测试（253 项：单元、队列、CLI、GUI offscreen、引擎生命周期、密码后端行为、MOTW 边界、发布产物构建回归；真实后端集成测试在检测到 7-Zip 时执行）。
+- [x] 完成发布前独立最终 Review 与复验。（`docs/FINAL_REVIEW.md`；2026-09-26：P1 GUI 回收竞态、MOTW 误标、manifest 来源标识、便携手册断链等修复，253 项连续 3 次全量通过，见 PROGRESS.md 顶部）
+- [x] 完成发布包。（`python scripts/build_portable.py` → `dist/DuctZip-1.0.0rc1-portable.zip` + `.sha256` + `build-manifest.json`；zip 内为单一顶层目录 `DuctZip-1.0.0rc1\`，已在隔离目录冒烟验证，见 PROGRESS.md Phase 7）
 
 ## v1.x 后续方向
 

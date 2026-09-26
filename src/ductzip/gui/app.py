@@ -15,36 +15,38 @@ from ductzip.core import (
 )
 from ductzip.settings import effective_sevenzip, load_settings, save_settings
 
+# Qt is imported at module level here and in the GUI submodules below. A missing
+# optional dependency is reported by ``ductzip.gui.main`` (the entry point for
+# both ``ductzip-gui`` and ``python -m ductzip.gui``), which turns the
+# ImportError into an actionable message; importing this module directly
+# without PySide6 therefore raises ImportError, as any missing import would.
+from PySide6.QtCore import QObject, QCoreApplication, QElapsedTimer, QEventLoop, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QCloseEvent
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 from . import workers
 from .settings_dialog import SettingsDialog
 from .workers import BatchWorker, ExtractWorker, PreviewWorker
-
-try:
-    from PySide6.QtCore import QObject, QCoreApplication, QElapsedTimer, QEventLoop, Qt, QThread, QUrl, Signal, Slot
-    from PySide6.QtGui import QDesktopServices, QCloseEvent
-    from PySide6.QtWidgets import (
-        QApplication,
-        QCheckBox,
-        QComboBox,
-        QDialog,
-        QFileDialog,
-        QHBoxLayout,
-        QLabel,
-        QLineEdit,
-        QListWidget,
-        QListWidgetItem,
-        QMainWindow,
-        QMessageBox,
-        QPlainTextEdit,
-        QProgressBar,
-        QPushButton,
-        QTableWidget,
-        QTableWidgetItem,
-        QVBoxLayout,
-        QWidget,
-    )
-except ImportError as exc:  # pragma: no cover - exercised only without GUI dependency.
-    raise SystemExit("PySide6 is required for the GUI. Install with: pip install -e .[gui]") from exc
 
 
 # Bounded time the window waits for an active extraction worker to finish
@@ -445,8 +447,6 @@ class MainWindow(QMainWindow):
         self.worker.completed.connect(self.worker_thread.quit)
         self.worker.failed.connect(self.worker_thread.quit)
         self.worker.cancelled.connect(self.worker_thread.quit)
-        self.worker_thread.finished.connect(self.worker.deleteLater)
-        self.worker_thread.finished.connect(self.worker_thread.deleteLater)
         self.worker_thread.finished.connect(self.on_worker_finished)
 
         self.progress_bar.setValue(0)
@@ -500,11 +500,27 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_worker_finished(self) -> None:
+        thread = self.worker_thread
+        worker = self.worker
+        if thread is not None:
+            # QThread.finished fires before the OS thread has fully exited.
+            # Dropping the last Python reference to ``worker`` (whose thread
+            # affinity is the dying worker thread) inside that window makes
+            # shiboken destroy the C++ object concurrently with the thread's
+            # teardown, which intermittently crashed the whole process
+            # (access violation / heap corruption / hard abort). Wait until
+            # the OS thread has ended before the captured references are
+            # released, so the C++ worker is deleted from the main thread
+            # only after its affinity thread is gone. Idempotent: closeEvent
+            # may call this explicitly and the queued signal may deliver it
+            # again.
+            thread.wait(WORKER_SHUTDOWN_TIMEOUT_MS)
         self.extract_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self.worker_thread = None
         self.worker = None
         self.cancel_event = None
+        del worker  # released here, after the thread is confirmed dead
 
     @Slot(str)
     def append_log(self, message: str) -> None:
@@ -576,7 +592,6 @@ class MainWindow(QMainWindow):
         self.batch_thread.started.connect(self.batch_worker.run)
         self.batch_worker.event.connect(self.on_batch_event)
         self.batch_worker.finished.connect(self.batch_thread.quit)
-        self.batch_thread.finished.connect(self.batch_worker.deleteLater)
         self.batch_thread.finished.connect(self.on_batch_thread_finished)
         self._batch_running = True
         self._update_batch_buttons()
@@ -697,6 +712,12 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_batch_thread_finished(self) -> None:
+        thread = self.batch_thread
+        worker = self.batch_worker
+        if thread is not None:
+            # Same teardown race as on_worker_finished: hold the wrapper
+            # references until the OS thread has fully exited.
+            thread.wait(WORKER_SHUTDOWN_TIMEOUT_MS)
         self._batch_running = False
         self.batch_thread = None
         self.batch_worker = None
@@ -704,6 +725,7 @@ class MainWindow(QMainWindow):
             for task in self.batch_queue.tasks:
                 self._set_task_label(task)
         self._update_batch_buttons()
+        del worker  # released here, after the thread is confirmed dead
 
     def _wait_for_thread(self, thread: QThread, timeout_ms: int) -> bool:
         """Pump events until ``thread`` stops or the bound expires.

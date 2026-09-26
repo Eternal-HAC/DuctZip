@@ -80,19 +80,33 @@ def iter_output_files(output_dir: str | Path) -> list[Path]:
     return files
 
 
-def propagate_motw(archive_path: str | Path, output_dir: str | Path) -> MotwReport:
+def propagate_motw(
+    archive_path: str | Path,
+    output_dir: str | Path,
+    *,
+    exclude: set[Path] | frozenset[Path] | None = None,
+) -> MotwReport:
     """Copy the archive's MOTW stream onto every extracted file.
 
     Silent no-op when the archive carries no MOTW stream or the file
     system does not support ADS; never raises for I/O failures.
+
+    ``exclude`` carries files that already existed in ``output_dir`` before
+    the extraction started (a snapshot taken by the caller). Those files are
+    left untouched: MOTW marks *extracted* content, and re-tagging a
+    pre-existing local file would mislabel it as downloaded (SECURITY.md
+    MOTW boundary).
     """
     content = read_zone_identifier(archive_path)
     if content is None:
         return MotwReport(source_had_motw=False)
 
+    excluded = exclude or frozenset()
     failures: list[Path] = []
     propagated = 0
     for target in iter_output_files(output_dir):
+        if target in excluded:
+            continue
         if write_zone_identifier(target, content):
             propagated += 1
         else:

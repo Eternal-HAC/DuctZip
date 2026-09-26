@@ -34,7 +34,7 @@ from ductzip.archive import (
     UnknownArchiveError,
 )
 from ductzip.archive.sevenzip import OverwritePolicy
-from ductzip.motw import MotwReport, propagate_motw
+from ductzip.motw import MotwReport, iter_output_files, propagate_motw, read_zone_identifier
 
 from .smart_output import (
     ConflictStrategy,
@@ -161,6 +161,14 @@ class ExtractionService:
             cancel_event=cancel_event,
         )
         self.last_motw_report = None
+        # Snapshot files that already exist in the final output directory so
+        # MOTW propagation below tags only files this extraction produced.
+        # Pre-existing files (e.g. merge-conflict targets) keep their own
+        # provenance; re-tagging them would mislabel local content as
+        # downloaded (SECURITY.md MOTW boundary).
+        preexisting: frozenset[Path] = frozenset()
+        if read_zone_identifier(plan.archive_path) is not None:
+            preexisting = frozenset(iter_output_files(plan.final_output_dir))
         for event in self.engine.extract_with_progress(
             plan.archive_path,
             plan.final_output_dir,
@@ -171,5 +179,7 @@ class ExtractionService:
             if event.kind == "completed":
                 # Best-effort Zone.Identifier propagation (DD-018): never
                 # fails the extraction; per-file failures stay on the report.
-                self.last_motw_report = propagate_motw(plan.archive_path, plan.final_output_dir)
+                self.last_motw_report = propagate_motw(
+                    plan.archive_path, plan.final_output_dir, exclude=preexisting
+                )
             yield event

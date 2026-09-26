@@ -10,6 +10,8 @@ import zipfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import tests.settings_harness  # noqa: F401  # force throwaway settings path
+
 
 def pump_events_until(condition, timeout_ms: int = 5_000) -> bool:
     """Process the Qt event loop until ``condition()`` is true or timeout."""

@@ -1,10 +1,25 @@
 # Changelog
 
-All notable changes to DuctZip are documented here. The project is pre-1.0; versions follow the roadmap milestones.
+All notable changes to DuctZip are documented here. Versions follow the roadmap milestones; this release candidate is unsigned (no code-signing certificate) — see the release notes.
 
-## [Unreleased]
+## [1.0.0rc1] - 2026-09-26 (RC closure)
 
-v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workflows, and v0.4.1 stabilization: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 230 tests pass.
+Independent pre-release review fixes on top of the 2026-09-19 candidate; 253 tests pass (three consecutive full-suite runs).
+
+### Fixed
+
+- **Intermittent native crash when a GUI extraction/batch window closes while the worker thread is finishing** (access violation / heap corruption / hard abort). `QThread.finished` fires before the OS thread has fully exited; the old teardown dropped the last Python reference to the worker — destroying its C++ object from the main thread while the worker thread was still in its exit window. `MainWindow.on_worker_finished` / `on_batch_thread_finished` now hold the wrapper references until the OS thread is confirmed dead (`QThread.wait`), and the racy `finished → deleteLater` self-deletion chains were removed. Two new deterministic regression tests assert the teardown invariant.
+- **MOTW propagation no longer tags pre-existing files.** Extracting into a directory that already contains files (merge-conflict scenarios) previously copied the archive's `Zone.Identifier` onto those local files, mislabeling them as downloaded. The service now snapshots files present before the engine runs and the propagation pass skips them; only files the extraction produced are tagged, matching `docs/SECURITY.md`.
+
+### Changed
+
+- Portable packaging: the zip now ships `USER_MANUAL.md` and the release notes for the packaged version at the package root (previously the release notes pointed at a `docs/USER_MANUAL.md` path that did not exist inside the package), and `build-manifest.json` records honest provenance — `git_dirty` plus a `worktree_diff_sha256` digest over `git diff HEAD` — so a build from a modified worktree is identifiable instead of masquerading as a pure-HEAD artifact. The build fails when the user manual or the version-matched release notes are missing.
+- Release notes: removed a developer-machine absolute path from the acceptance-evidence section.
+- GUI tests: all GUI test modules now import the throwaway-settings harness so standalone runs never touch the real user settings.
+
+## [1.0.0rc1] - 2026-09-19
+
+v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workflows, and v0.4.1 stabilization: cancellation responsiveness, subprocess lifecycle, GUI thread-safety, and safety-boundary hardening. 247 tests pass at the 2026-09-19 baseline (253 after the 2026-09-26 RC-closure regressions below).
 
 ### Added
 
@@ -31,7 +46,7 @@ v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workfl
   - Stable invocation protocol `"<launcher>" -m ductzip shell <verb> "%1"` with quoted Unicode path handling; verbs also accept multiple archives per invocation and the standard batch options (`--password`, `--overwrite-policy`, `--conflict-strategy`, `--retries`, `--sevenzip`, `--verbose`).
   - Stale-launcher detection via `shell status`; re-running `register` repairs the recorded path.
   - `docs/WINDOWS_INTEGRATION.md` documents scope, registry layout, protocol, and known limitations (Windows 11 classic-verb location, per-file Explorer invocation, multi-suffix coverage).
-- New `ductzip batch-extract` CLI command: extract multiple archives into one shared output root with a single invocation. Per-task `[完成]/[失败]/[取消]` reporting and a Chinese summary on stderr; exit codes 0 (all completed), 1 (some failed), 130 (cancelled via Ctrl+C, which cancels the whole queue), 2 (usage error). `--retries N` re-runs failed tasks up to N times; `--verbose` streams per-task progress.
+- New `ductzip batch-extract` CLI command: extract multiple archives into one shared output root with a single invocation. Per-task `[完成]/[失败]/[取消]` reporting and a Chinese summary on stderr; exit codes 0 (all completed), 1 (some failed), 130 (cancelled via Ctrl+C or Ctrl+Break, which cancels the whole queue), 2 (usage error). `--retries N` re-runs failed tasks up to N times; `--verbose` streams per-task progress.
 - GUI batch queue: drop multiple archives (or add via file dialog) to populate a queue list with per-task status, progress percentage, error, and final output directory; start, retry failed/cancelled tasks, remove tasks where legal (running/planning tasks are refused and the refusal is logged), cancel current task, cancel all; double-click a completed task to open its final output folder. Batch runs on a background thread with the window staying responsive; window close during a batch cancels and reaps it within a bounded time.
 - New `ductzip.gui.workers.BatchWorker`: re-emits every `BatchEvent` from the queue runner to the window; cancellation calls straight into the queue (thread-safe) because the worker thread has no event loop while `run()` executes.
 - 17 new tests: 8 CLI batch tests (mixed success/failure exit code, CLI order with real backend, retry recovers a flaky backend, per-task Smart Output final dirs with real backend, missing backend, usage error, Ctrl+C → 130) and 9 GUI batch tests (queue population via drag-drop signal, non-file skip, completion with final dirs visible, mixed failure isolation, retry via GUI, bounded cancel-all with thread reaping, remove legality, open-output double-click, bounded close-during-batch).
@@ -63,6 +78,13 @@ v0.7 settings/security/privacy pass, v0.6 Windows integration, v0.5 batch workfl
 - Cancelling a silent extraction (backend producing no output) could block for ~15s while closing pipes still held open by a surviving grandchild process; stream closing is now owned exclusively by the reader thread, which never blocks the caller.
 - `communicate()`-style draining after terminate could block the same way; the cancellable `_run` path now closes the pipes directly on cancel.
 - Window close during an extraction could deadlock (queued `quit` delivery never processed while the main thread blocked in `wait()`) or crash with `RuntimeError` on a deleted QThread wrapper; both are handled with an event-pumping bounded wait.
+- The backend could take over the console to ask for a password. With no password argument 7-Zip prints `Enter password (will not be echoed):` and reads stdin, so an interactive run appeared to hang and a non-interactive one died with `Break signaled` — reported to the user as "压缩包可能已损坏或格式不受支持". Every backend invocation now passes a password switch (empty `-p` means "empty password, do not ask") and runs with `stdin=DEVNULL`, so the prompt is both unnecessary and unreachable.
+- "Password required" and "wrong password" were indistinguishable (and the first was unreachable): an encrypted archive with no password given is now reported as `该压缩包需要密码。` rather than a corruption message, while a supplied-but-wrong password still reports `密码错误。`. `_map_sevenzip_error` takes `password_supplied` from the caller, which is the only party that knows.
+- Ctrl+Break killed the process outright instead of cancelling. A plain Python process installs no `CTRL_BREAK_EVENT` handler, so the console default applied: exit `0xC000013A` instead of the documented 130, no message, and the backend left running. `ductzip.cli` now installs a `SIGBREAK` handler for the duration of a command (restored afterwards) and every command reports an interrupt as `已取消：正在停止...` with exit code 130.
+- A single-archive `extract` interrupted by the user had no cancellation handling at all; it now returns 130 like the batch path.
+- Listing a large archive could hang forever on the cancellable path (GUI preview, batch planning, and any `cancel_event` caller). `_run` polled the child for exit and only read its pipes after it exited, so a listing bigger than the OS pipe buffer deadlocked: the backend blocked in `write()` and never exited, while DuctZip waited for it to exit. The loop now drains through `communicate(timeout=…)`, which reads both pipes concurrently with the wait; cancellation still terminates and closes the pipes directly, without draining. Found by the §7.4 GUI acceptance run against a 300 MB / 1200-entry archive; `tests/test_engine_lifecycle.py::CancellableListingDrainTests` reproduces it with a backend that emits a 145 KiB listing (fails by deadlocking before the fix, 2 tests).
+
+- Command output depended on the machine's console code page. Python encodes *redirected* streams with the ANSI code page (cp936 on a Chinese install, cp1252 on an English one), so on an English Windows `ductzip list` died with an unhandled `UnicodeEncodeError` instead of printing the listing, and Chinese diagnostics reached a redirected file as mojibake. `ductzip.cli.main` now fixes stdout/stderr to UTF-8 with replacement error handlers before dispatch; attached to a real console nothing changes, because Python already writes through the wide console API there. Found by the §7.3 CLI acceptance run; `tests/test_cli.py::ConsoleEncodingTests` reproduces it by running the CLI out of process under `PYTHONIOENCODING=cp1252` (2 tests).
 
 ## [v0.4.1] - 2026-09-14
 

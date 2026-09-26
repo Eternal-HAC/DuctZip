@@ -326,5 +326,102 @@ class ArchiveMutationBoundaryTests(unittest.TestCase):
                 service.extract(archive, root / "out", listing=listing)
 
 
+def make_bulky_listing_fake_7z(directory: Path, entries: int = 3000) -> Path:
+    """A fake backend whose listing output is far larger than a pipe buffer.
+
+    Each ``-slt`` record is ~48 bytes, so 3000 entries (~145 KiB) cannot fit in
+    the OS pipe buffer. A parent that waits for the child to exit *before*
+    reading its stdout deadlocks here: the child blocks in ``write()`` forever.
+    """
+    script = directory / ("bulky7z.cmd" if os.name == "nt" else "bulky7z")
+    if os.name == "nt":
+        body = (
+            "@echo off\r\n"
+            'if not "%~1"=="l" exit /b 0\r\n'
+            f"for /L %%i in (1,1,{entries}) do (\r\n"
+            "  echo Path = file%%i.bin\r\n"
+            "  echo Size = 2048\r\n"
+            "  echo Attributes = A\r\n"
+            "  echo.\r\n"
+            ")\r\n"
+            "exit /b 0\r\n"
+        )
+        script.write_text(body, encoding="utf-8")
+    else:
+        lines = ['#!/bin/sh\n[ "$1" = "l" ] || exit 0\n']
+        lines.append(f"i=1\nwhile [ $i -le {entries} ]; do\n")
+        lines.append('  echo "Path = file$i.bin"\n  echo "Size = 2048"\n')
+        lines.append('  echo "Attributes = A"\n  echo ""\n  i=$((i+1))\ndone\n')
+        script.write_text("".join(lines), encoding="utf-8")
+        script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    return script
+
+
+class CancellableListingDrainTests(unittest.TestCase):
+    """The cancellable path must keep draining the backend while it polls.
+
+    ``_run(cancel_event=...)`` polls the child for exit to stay responsive to
+    cancellation. If it only reads the pipes after the child exits, any listing
+    larger than the pipe buffer deadlocks: the child cannot exit until someone
+    reads, and the parent will not read until the child exits. GUI preview and
+    batch planning both go through this path with a cancel event, so a large
+    archive would hang them indefinitely.
+    """
+
+    def test_large_listing_does_not_deadlock_on_the_cancellable_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "big.zip"
+            archive.write_bytes(b"PK\x03\x04")
+            engine = SevenZipCliEngine(make_bulky_listing_fake_7z(root))
+
+            outcome: dict[str, object] = {}
+
+            def run() -> None:
+                try:
+                    outcome["listing"] = engine.list(archive, cancel_event=threading.Event())
+                except BaseException as exc:  # pragma: no cover - reported below
+                    outcome["error"] = exc
+
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            worker.join(timeout=30)
+
+            self.assertFalse(
+                worker.is_alive(),
+                "listing deadlocked: the backend filled the pipe buffer and "
+                "nothing drained it while the parent waited for exit",
+            )
+            self.assertNotIn("error", outcome, f"listing raised: {outcome.get('error')!r}")
+            listing = outcome["listing"]
+            self.assertIsInstance(listing, ArchiveListing)
+            self.assertEqual(len(listing.entries), 3000)
+
+    def test_large_listing_is_still_cancellable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive = root / "big.zip"
+            archive.write_bytes(b"PK\x03\x04")
+            engine = SevenZipCliEngine(make_bulky_listing_fake_7z(root))
+
+            cancel_event = threading.Event()
+            outcome: dict[str, object] = {}
+
+            def run() -> None:
+                try:
+                    engine.list(archive, cancel_event=cancel_event)
+                except BaseException as exc:
+                    outcome["error"] = exc
+
+            worker = threading.Thread(target=run, daemon=True)
+            worker.start()
+            time.sleep(0.15)
+            cancel_event.set()
+            worker.join(timeout=15)
+
+            self.assertFalse(worker.is_alive(), "cancellation did not take effect")
+            self.assertIsInstance(outcome.get("error"), ArchiveCancelled)
+
+
 if __name__ == "__main__":
     unittest.main()

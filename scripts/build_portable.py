@@ -7,11 +7,15 @@ repository root. Uses only the standard library. Produces, under ``dist/``:
 - ``DuctZip-<version>-portable.zip.sha256`` — checksum for the artifact.
 - ``build-manifest.json`` — build inputs and per-file digests (evidence).
 
-Contents: the runtime package (``src/ductzip``), user documentation, license,
-third-party notices, and Windows launcher scripts. ``vendor/7zip`` is included
-only when it already exists on disk, which happens solely after the explicit
-user approval recorded in LONG_TASK.md §10.2 #3 — this script never downloads
-anything.
+Contents: the runtime package (``src/ductzip``), user documentation
+(README, USER_MANUAL, and the release notes for the packaged version),
+license, third-party notices, and Windows launcher scripts. ``vendor/7zip``
+is included only when it already exists on disk, which happens solely after
+the explicit user approval recorded in LONG_TASK.md §10.2 #3 — this script
+never downloads anything. The manifest records honest provenance
+(``git_commit`` plus ``git_dirty`` / ``worktree_diff_sha256``) so a build
+from a modified worktree is identifiable instead of masquerading as a
+pure-HEAD artifact.
 """
 
 from __future__ import annotations
@@ -35,6 +39,10 @@ PORTABLE_DIR = REPO_ROOT / "packaging" / "portable"
 VENDOR_7ZIP = REPO_ROOT / "vendor" / "7zip"
 
 REQUIRED_ROOT_DOCS = ("README.md", "LICENSE", "CHANGELOG.md", "THIRD_PARTY_NOTICES.md")
+# Shipped inside the portable root so the package is self-documenting; the
+# release notes for the exact packaged version travel with the artifact.
+REQUIRED_PORTABLE_DOCS = ("docs/USER_MANUAL.md",)
+RELEASE_NOTES_TEMPLATE = "docs/RELEASE_NOTES_{version}.md"
 REQUIRED_PORTABLE_FILES = ("ductzip.cmd", "DuctZip GUI.cmd", "PORTABLE.txt")
 
 # Refuse to package if any of these path fragments show up inside src/ductzip.
@@ -61,15 +69,37 @@ def package_version() -> str:
     return match.group(1)
 
 
-def git_commit() -> str:
+def git_state() -> dict[str, object]:
+    """Honest, repo-relative provenance for the packaged source tree.
+
+    A dirty worktree must not be silently presented as a pure-HEAD artifact:
+    the manifest records ``git_dirty`` and a digest over ``git diff HEAD``
+    (all tracked modifications), which together with the per-file sha256
+    entries makes the packaged source state auditable without leaking
+    build-host paths. Untracked files are covered by the per-file digests
+    whenever they are part of the artifact.
+    """
+    commit = "unknown"
+    dirty = True
+    diff_sha: str | None = None
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=REPO_ROOT, capture_output=True, text=True, check=True,
         )
-        return out.stdout.strip()
+        commit = out.stdout.strip()
+        out = subprocess.run(
+            ["git", "diff", "HEAD"],
+            cwd=REPO_ROOT, capture_output=True, check=True,
+        )
+        diff = out.stdout
+        dirty = bool(diff.strip())
+        if dirty:
+            diff_sha = hashlib.sha256(diff).hexdigest()
     except (OSError, subprocess.CalledProcessError):
-        return "unknown"
+        # Cannot prove the tree state; record honestly instead of guessing.
+        dirty = True
+    return {"commit": commit, "dirty": dirty, "worktree_diff_sha256": diff_sha}
 
 
 def sha256_of(path: Path) -> str:
@@ -130,26 +160,35 @@ def collect_source_files() -> list[Path]:
 
 
 def build(output_dir: Path) -> Path:
+    version = package_version()
     for doc in REQUIRED_ROOT_DOCS:
         if not (REPO_ROOT / doc).is_file():
             raise RuntimeError(f"missing required file: {doc}")
+    for doc in REQUIRED_PORTABLE_DOCS:
+        if not (REPO_ROOT / doc).is_file():
+            raise RuntimeError(f"missing required file: {doc}")
+    release_notes = RELEASE_NOTES_TEMPLATE.format(version=version)
+    if not (REPO_ROOT / release_notes).is_file():
+        raise RuntimeError(f"missing release notes for packaged version: {release_notes}")
     for name in REQUIRED_PORTABLE_FILES:
         if not (PORTABLE_DIR / name).is_file():
             raise RuntimeError(f"missing portable launcher: {name}")
 
-    version = package_version()
     bundle_backend = VENDOR_7ZIP.is_dir() and any(VENDOR_7ZIP.iterdir())
     if bundle_backend:
         verify_bundled_backend()
     artifact = output_dir / f"DuctZip-{version}-portable.zip"
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    provenance = git_state()
     manifest: dict[str, object] = {
         "name": "DuctZip portable",
         "version": version,
         "python": platform.python_version(),
         "platform": platform.platform(),
-        "git_commit": git_commit(),
+        "git_commit": provenance["commit"],
+        "git_dirty": provenance["dirty"],
+        "worktree_diff_sha256": provenance["worktree_diff_sha256"],
         "built_at_utc": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
         "bundled_7zip": bool(bundle_backend),
         "bundled_7zip_backend": bundled_backend_record(),
@@ -159,6 +198,9 @@ def build(output_dir: Path) -> Path:
     entries: list[tuple[Path, str]] = []  # (absolute source, arcname)
     for doc in REQUIRED_ROOT_DOCS:
         entries.append((REPO_ROOT / doc, doc))
+    for doc in REQUIRED_PORTABLE_DOCS:
+        entries.append((REPO_ROOT / doc, Path(doc).name))
+    entries.append((REPO_ROOT / release_notes, "RELEASE_NOTES.md"))
     for name in REQUIRED_PORTABLE_FILES:
         entries.append((PORTABLE_DIR / name, name))
     for source in collect_source_files():
@@ -174,9 +216,13 @@ def build(output_dir: Path) -> Path:
             target = staged / arcname
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+        # Wrap everything in a single top-level folder. Without it, extracting
+        # the archive scatters README/LICENSE/src/vendor into whatever
+        # directory the user happened to be in.
+        root = f"DuctZip-{version}"
         for target in sorted(staged.rglob("*")):
             if target.is_file():
-                arcname = target.relative_to(staged).as_posix()
+                arcname = f"{root}/{target.relative_to(staged).as_posix()}"
                 zf.write(target, arcname)
                 manifest["files"].append({  # type: ignore[index]
                     "name": arcname,

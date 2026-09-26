@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ductzip"
-version = "0.7.0"
+version = "1.0.0rc1"
 description = "A lightweight Windows archive extraction tool."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = "MIT"
 dependencies = []
 keywords = ["archive", "7zip", "cli", "windows", "extraction"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: Microsoft :: Windows",
@@ -23,7 +23,7 @@ classifiers = [
 
 [project.scripts]
 ductzip = "ductzip.cli:main"
-ductzip-gui = "ductzip.gui.app:main"
+ductzip-gui = "ductzip.gui:main"
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.7"]

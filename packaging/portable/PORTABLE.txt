@@ -5,6 +5,8 @@ What this is
 ------------
 A no-install distribution of DuctZip: the CLI, the optional GUI, and the
 Windows Explorer integration commands, plus documentation and license.
+USER_MANUAL.md in this folder is the full usage guide;
+RELEASE_NOTES.md covers this build's version.
 
 Requirements
 ------------
