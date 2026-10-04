@@ -212,6 +212,8 @@
 
 ## v1.0 首个稳定版本
 
+2026-10-04 全量套件挂起修复已完成：引擎可取消路径改用 reader 线程 + 队列，Windows 下取消使用参数化 `taskkill /F /T` 终止整棵 wrapper 进程树，新增 3 项回归测试，测试总数从 253 增至 256 项，连续 3 次全量通过。状态：已通过 Codex 最终安全/结果验收（CODEX_ACCEPTED），未推送/打 Tag/发布。
+
 目标：发布一个稳定、轻量、以解压为核心的 Windows 工具。
 
 完成标准：
@@ -229,9 +231,9 @@
 - [x] 完成安装说明。（`docs/USER_MANUAL.md` §2 运行环境、§3 安装：便携包 / 源码与 wheel / GUI 依赖）
 - [x] 完成卸载说明。（`docs/USER_MANUAL.md` §13 卸载：便携包删目录、pip 卸载、右键菜单精确撤销）
 - [x] 完成 CHANGELOG。
-- [x] 完成基础自动化测试（253 项：单元、队列、CLI、GUI offscreen、引擎生命周期、密码后端行为、MOTW 边界、发布产物构建回归；真实后端集成测试在检测到 7-Zip 时执行）。
-- [x] 完成发布前独立最终 Review 与复验。（`docs/FINAL_REVIEW.md`；2026-09-26：P1 GUI 回收竞态、MOTW 误标、manifest 来源标识、便携手册断链等修复，253 项连续 3 次全量通过，见 PROGRESS.md 顶部）
-- [x] 完成发布包。（`python scripts/build_portable.py` → `dist/DuctZip-1.0.0rc1-portable.zip` + `.sha256` + `build-manifest.json`；zip 内为单一顶层目录 `DuctZip-1.0.0rc1\`，已在隔离目录冒烟验证，见 PROGRESS.md Phase 7）
+- [x] 完成基础自动化测试（当前 256 项：单元、队列、CLI、GUI offscreen、引擎生命周期、密码后端行为、MOTW 边界、发布产物构建回归；真实后端集成测试在检测到 7-Zip 时执行）。
+- [x] 完成发布前独立最终 Review 与复验。（2026-09-26 RC 关闭复核为 253 项连续 3 次通过；2026-10-04 full-suite hang 修复后为 256 项连续 3 次通过，并由 Codex 独立复验，见 `docs/FINAL_REVIEW.md` 与 `PROGRESS.md`）
+- [ ] 从最终提交后的干净工作树重新构建发布包。（现有 `dist/` 是 2026-09-26 旧构建；最终执行 `python scripts/build_portable.py` 生成 zip、`.sha256` 和 `build-manifest.json`，并重新做隔离冒烟）
 
 ## v1.x 后续方向
 

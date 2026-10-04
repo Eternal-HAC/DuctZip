@@ -10,6 +10,7 @@ import sys
 import threading
 from collections.abc import Iterator
 import queue
+import time
 from typing import Literal
 
 from .errors import (
@@ -403,8 +404,12 @@ class SevenZipCliEngine:
             except OSError as exc:
                 raise UnknownArchiveError() from exc
 
-        # Cancellable variant used by list/test/planning paths: poll with a
-        # short timeout so a silent or hung backend cannot block cancellation.
+        # Cancellable variant used by list/test/planning paths. Dedicated
+        # reader threads drain stdout/stderr into queues so the main loop can
+        # poll the cancel_event and process exit without being blocked by a
+        # read() on a silent backend. This keeps cancellation responsive even
+        # when the child process (or a surviving grandchild on Windows) holds
+        # the pipe's write end open.
         try:
             process = subprocess.Popen(
                 command,
@@ -417,35 +422,63 @@ class SevenZipCliEngine:
         except OSError as exc:
             raise UnknownArchiveError() from exc
 
+        stdout_queue: queue.Queue[str] = queue.Queue()
+        stderr_queue: queue.Queue[str] = queue.Queue()
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+        readers: list[threading.Thread] = []
+        for stream, q in (
+            (process.stdout, stdout_queue),
+            (process.stderr, stderr_queue),
+        ):
+            thread = threading.Thread(
+                target=_drain_text_stream,
+                args=(stream, q),
+                daemon=True,
+            )
+            thread.start()
+            readers.append(thread)
+
+        cancelled = False
         try:
             while True:
                 if cancel_event.is_set():
+                    cancelled = True
                     _terminate_process(process)
-                    # Do NOT communicate() here: draining until EOF can block
-                    # for as long as a surviving grandchild keeps the pipe's
-                    # write end open. Any reader threads started by an earlier
-                    # communicate() are daemons that end when the pipes close.
-                    for stream in (process.stdout, process.stderr):
-                        if stream is not None:
-                            try:
-                                stream.close()
-                            except OSError:
-                                pass
                     raise ArchiveCancelled()
-                try:
-                    # communicate(timeout=...) starts draining both pipes
-                    # *concurrently* and then waits. Reading only after the
-                    # child exits would deadlock on any output larger than the
-                    # pipe buffer: the child blocks in write() and never exits,
-                    # so the parent waits forever (listings of large archives
-                    # exceed the buffer easily).
-                    stdout, stderr = process.communicate(timeout=0.05)
+
+                _drain_queue(stdout_queue, stdout_parts)
+                _drain_queue(stderr_queue, stderr_parts)
+
+                if process.poll() is not None:
                     break
-                except subprocess.TimeoutExpired:
-                    continue
-            return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+                time.sleep(0.01)
         finally:
             _reap_process(process)
+            if cancelled:
+                # Cancellation path: responsiveness matters more than capturing
+                # every byte. Give the readers a brief, bounded chance to drain
+                # what is already queued, but do not wait for grandchildren.
+                for reader in readers:
+                    reader.join(timeout=0.5)
+            else:
+                # Normal completion path: the direct child has exited, but a
+                # cmd.exe wrapper may have left a grandchild holding the pipe
+                # write end. Wait for the reader threads to finish so that all
+                # stdout/stderr output produced by the process tree is
+                # captured before we return.
+                for reader in readers:
+                    reader.join(timeout=10)
+                _drain_queue(stdout_queue, stdout_parts)
+                _drain_queue(stderr_queue, stderr_parts)
+
+        return subprocess.CompletedProcess(
+            command,
+            process.returncode,
+            "".join(stdout_parts),
+            "".join(stderr_parts),
+        )
 
 
 def _drain_process_output(process: subprocess.Popen[str], char_queue: queue.Queue[str | None]) -> None:
@@ -478,6 +511,55 @@ def _drain_process_output(process: subprocess.Popen[str], char_queue: queue.Queu
                 pass
 
 
+
+
+def _drain_text_stream(stream, out_queue: queue.Queue[str]) -> None:
+    """Read lines from 'stream' and push them onto 'out_queue'.
+
+    A final empty string marks EOF. The reader thread owns the stream close so
+    that the main loop never blocks on a concurrent read().
+    """
+    try:
+        if stream is None:
+            return
+        while True:
+            chunk = stream.readline()
+            if chunk == "":
+                break
+            out_queue.put(chunk)
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            out_queue.put("")
+        except Exception:
+            pass
+        if stream is not None:
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
+def _drain_queue(q: queue.Queue[str], parts: list[str], timeout: float = 0.0) -> None:
+    """Move currently available items from 'q' into 'parts'.
+
+    Stops on the empty-string EOF sentinel or when no more data is available.
+    With 'timeout > 0' it will block briefly to catch trailing items after
+    the process has exited.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            remaining = max(0.0, deadline - time.monotonic()) if timeout else 0.0
+            item = q.get(timeout=remaining)
+        except queue.Empty:
+            return
+        if item == "":
+            return
+        parts.append(item)
+
+
 def _parse_slt_entries(output: str) -> list[ArchiveEntry]:
     entries: list[ArchiveEntry] = []
     current: dict[str, str] = {}
@@ -505,9 +587,49 @@ def _parse_slt_entries(output: str) -> list[ArchiveEntry]:
     return entries
 
 
-def _terminate_process(process: subprocess.Popen[str]) -> None:
+def _win32_terminate_process_tree(
+    process: subprocess.Popen[str],
+    *,
+    _run: object | None = None,
+    timeout: float = 5.0,
+) -> None:
+    # Best-effort Windows-only whole-tree termination. The bundled 7-Zip backend
+    # spawns no children, but a user-supplied wrapper may. A plain TerminateProcess
+    # only kills the immediate child, leaving grandchildren holding the pipe write
+    # end and blocking the reader threads. taskkill /F /T terminates the whole tree
+    # and lets the pipes EOF.
+    if _run is None:
+        _run = subprocess.run
+    try:
+        _run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            check=False,
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def _terminate_process(
+    process: subprocess.Popen[str],
+    *,
+    _run: object | None = None,
+) -> None:
+    # Terminate 'process', reaping any wrapper-script descendants on Windows.
+    # '_run' is the callable used to launch the Windows tree-kill helper. It is
+    # exposed so tests can inject a recorder without relying on fragile
+    # global-mock exclusions. The default is the current 'subprocess.run'.
     if process.poll() is not None:
         return
+
+    if sys.platform == "win32":
+        if _run is None:
+            _run = subprocess.run
+        _win32_terminate_process_tree(process, _run=_run)
+        if process.poll() is not None:
+            return
 
     try:
         process.terminate()

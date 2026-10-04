@@ -1,5 +1,35 @@
 # PROGRESS.md — DuctZip Long-Task Recovery Ledger
 
+## 2026-10-04 Full-suite hang fix
+
+**Problem**: Running the full suite with `python -m unittest discover -s tests` would hang or time out; individual modules passed.
+
+**Root cause**: The cancellable path in `SevenZipCliEngine._run()` used `process.communicate(timeout=0.05)` in a polling loop. On Windows, when the backend is a `cmd.exe` wrapper script, the reader threads spawned by `communicate()` block cancellation responsiveness while the silent backend holds the pipe write end. This made `tests.test_engine_lifecycle.SilentBackendCancellationTests.test_list_with_cancel_event_raises_and_reaps` take ~15 s (the fake backend ping duration), and several such tests compounded until the suite appeared hung.
+
+**Fix** (`src/ductzip/archive/sevenzip.py`):
+1. Replaced the `communicate()` loop with dedicated stdout/stderr reader threads draining into queues; the main loop polls `cancel_event` and `process.poll()` every 10 ms and is no longer blocked by the reader threads.
+2. On cancellation the main thread no longer closes the streams itself (which would block if the reader is stuck); it relies on the reader threads to EOF and exit once the process tree is dead.
+3. On Windows `_terminate_process()` now runs `taskkill /F /T /PID <pid>` before the graceful `process.terminate()`, killing the whole process tree so grandchildren (e.g. `ping` launched by a `cmd.exe` wrapper) cannot keep the pipes open.
+4. `taskkill` is invoked via parameterized `subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], ...)` so the command is explicit, testable, and still outside the mocked backend subprocess paths.
+
+**Regression tests** (`tests/test_engine_lifecycle_regression.py`):
+- Added `test_delayed_stdout_after_wrapper_exit_is_captured`
+- Added `test_delayed_stderr_after_wrapper_exit_is_captured`
+- Added `test_cancel_terminates_grandchild_on_windows`
+
+**Verification**:
+- `python -m unittest tests.test_engine_lifecycle -v`: 16 tests, ~9 s, OK.
+- `python -m unittest discover -s tests`: **256 tests, OK, exit 0 -- three consecutive runs**.
+  Codex independent evidence: 256 tests in 61.414 s, OK.
+- `python -m unittest tests.test_password_handling -v`: 9 tests, OK.
+- `python -m py_compile src/ductzip/archive/sevenzip.py`: OK.
+
+**Uncommitted changes**: `src/ductzip/archive/sevenzip.py`, `tests/test_engine_lifecycle_regression.py`, `tests/test_password_handling.py`, and the documentation updates. No push/tag/release performed.
+
+**Status**: **CODEX_ACCEPTED**. Codex final safety/result acceptance passed on 2026-10-04.
+
+**Note on `dist/`**: the artifacts recorded above are still the 2026-09-26 old build (manifest `git_dirty=true`). They must be rebuilt from the final committed source before any push/tag/release.
+
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 
 ## 2026-09-26 RC closure re-verification (Claude Code) — DONE
@@ -167,7 +197,7 @@ cancellation uses); the numbers above are the post-fix run.
 New tests across 1–3: `tests/test_password_handling.py` (9), `tests/test_cli.py::CancellationTests` (2).
 Both sets were mutation-checked (reverted fix → tests fail) so they are not vacuous.
 
-### Documented limitation found by §7.3 (release decision: not implemented)
+### Historical limitation found by §7.3 (superseded 2026-10-04)
 
 Cancellation reaps the one backend process DuctZip launched, not the whole descendant tree.
 The bundled `7z.exe` spawns no children, so the shipped form leaves nothing behind; but a
@@ -177,6 +207,10 @@ grandchild survives. A Job Object (`KILL_ON_JOB_CLOSE`) would close this, but it
 reworking the cancellation/reaping path that §7.4/§7.5 already verify, and no acceptance
 criterion requires it. Recorded in `docs/SECURITY.md` under 已知安全边界 and in the release
 notes §5.4.
+
+This historical decision was superseded by the 2026-10-04 full-suite hang fix: Windows now
+uses parameterized `taskkill /F /T` for best-effort process-tree termination. Non-Windows
+platforms still guarantee only the immediate child.
 
 ### §7.4 GUI acceptance — PASS (26/26 rows, transcript in `C:\tmp\s74.log`)
 

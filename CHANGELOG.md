@@ -4,7 +4,7 @@ All notable changes to DuctZip are documented here. Versions follow the roadmap 
 
 ## [1.0.0rc1] - 2026-09-26 (RC closure)
 
-Independent pre-release review fixes on top of the 2026-09-19 candidate; 253 tests pass (three consecutive full-suite runs).
+Independent pre-release review fixes on top of the 2026-09-19 candidate; 253 tests pass (three consecutive full-suite runs). A 2026-10-04 follow-up fix replaced the cancellable path's `communicate()` loop with dedicated reader threads and, on Windows, added parameterized `taskkill /F /T` whole-tree termination; this added 3 regression tests and brought the suite to 256 tests, now passing three consecutive full-suite runs.
 
 ### Fixed
 

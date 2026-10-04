@@ -167,7 +167,16 @@ class BackendNeverPromptsTests(unittest.TestCase):
                 with self.assertRaises(PasswordRequired):
                     list(engine.extract_with_progress(archive, root / "out"))
 
-            invocations = run_proxy.calls + popen_proxy.calls
+            def _is_backend_invocation(command: list[str]) -> bool:
+                return str(fake) in command or any(
+                    argument == "-p" or argument.startswith("-p") for argument in command
+                )
+
+            invocations = [
+                (command, kwargs)
+                for command, kwargs in run_proxy.calls + popen_proxy.calls
+                if _is_backend_invocation(command)
+            ]
             self.assertTrue(invocations, "no backend invocation was recorded")
             for command, kwargs in invocations:
                 self.assertIs(

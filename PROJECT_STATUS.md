@@ -2,9 +2,17 @@
 
 更新时间：2026-09-26
 
+## 2026-10-04 更新
+
+2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过（Codex 独立复验 256 项 / 61.414s）。**Codex 最终安全/结果验收已通过（CODEX_ACCEPTED）**。发布动作（push / tag / release）继续留待用户手动执行。
+
+注意：当前 `dist/` 产物仍是 2026-09-26 的旧构建（manifest `git_dirty=true`），最终发布前必须在提交后重新构建。
+
+**Status: CODEX_ACCEPTED.** Release actions still deferred to the user.
+
 ## 当前阶段
 
-当前功能实现已经推进到 `1.0.0rc1`：v0.4.1 Smart Output、v0.5 批量解压、v0.6 HKCU Windows 集成、v0.7 设置/安全/MOTW/便携打包和捆绑 7-Zip 后端均已进入本地代码。2026-09-26 独立最终 Review 与 RC 复验**已完成**（报告 `docs/FINAL_REVIEW.md`）：P1 GUI 关闭回收竞态（即 fresh audit 那次异常退出的根因）、MOTW 误标已存在文件、manifest 来源标识、便携包用户手册断链、发布说明本机路径全部修复，253 项测试连续 3 次全量通过、GUI 相关模块 20 连过，便携包与 wheel 已从最终源码重建并通过隔离冒烟。状态调整为 **READY FOR CODEX ACCEPTANCE**（最终安全/结果验收由 Codex 执行；推送/Tag/Release 仍留待用户手动执行）。
+当前功能实现已经推进到 `1.0.0rc1`：v0.4.1 Smart Output、v0.5 批量解压、v0.6 HKCU Windows 集成、v0.7 设置/安全/MOTW/便携打包和捆绑 7-Zip 后端均已进入本地代码。2026-09-26 独立最终 Review 与 RC 复验**已完成**（报告 `docs/FINAL_REVIEW.md`）：P1 GUI 关闭回收竞态（即 fresh audit 那次异常退出的根因）、MOTW 误标已存在文件、manifest 来源标识、便携包用户手册断链、发布说明本机路径全部修复。2026-10-04 全量套件挂起修复已完成：根因明确为取消时只终止直接子进程、wrapper 后代持有管道写端导致 reader/pipe 生命周期挂起；修复后引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过。Codex 最终安全/结果验收已通过（**CODEX_ACCEPTED**）；推送、Tag 和 Release 仍留待用户决定。
 
 2026-09-26 fresh audit 发现的问题均已关闭：完整测试异常退出 → 根因为 GUI teardown 竞态（同签名复现：0xC0000005 / 0xC0000374 / abort），修复后全量 3 连过、每次运行无孤儿 `7z.exe`；manifest 来源标识 → 现记录 `git_dirty` + `worktree_diff_sha256`；wheel fresh 重建 → 已完成（54,393 字节，`ced8c72c…f401`）；用户手册离线可达性 → 便携包根目录现含 `USER_MANUAL.md` 与本版本 `RELEASE_NOTES.md`。
 
@@ -125,7 +133,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.7 文档：新增 `docs/SECURITY.md`（读取/写入/执行/日志说明、密码处理、本地-only 承诺、MOTW 行为与边界、捆绑后端供应链限制、已知不支持边界）；DD-016（设置存储）、DD-017（稳定错误消息）、DD-018（MOTW 传播）、DD-008 修订（后端来源与验证链）。
 - v1.0 发布候选收尾：`docs/USER_MANUAL.md`（安装/首次运行/CLI/GUI/右键菜单/后端/密码/冲突/安全限制/卸载/排错）；`docs/RELEASE_NOTES_1.0.0rc1.md`（发布说明 + §7 逐条证据摘要 + 已知限制与发布决定）；便携 zip 改为单一顶层目录 `DuctZip-1.0.0rc1\` 并在隔离目录复验；§7 全部验收命令执行并记入 `PROGRESS.md`。
 - v1.0 修复（§7 验收中发现）：后端不再可能接管控制台索要密码（每次调用都带 `-p` 开关并以 `DEVNULL` 为 stdin）；「需要密码」与「密码错误」改为可区分且都不泄漏密码；Ctrl+Break 由硬杀进程改为按取消处理（退出码 130），单个 `extract` 也纳入取消处理。新增 `tests/test_password_handling.py` 9 项与 `tests/test_cli.py::CancellationTests` 2 项，均做过「回退修复即失败」的变异校验。
-- v1.0 已记录限制：取消只回收 DuctZip 自己启动的那一个后端进程，不遍历杀进程树（实测 0.72s 内回收完毕、无残留）；捆绑的 7-Zip 无 Authenticode 签名；无第二台物理机的干净环境验证。
+- v1.0 已记录限制：Windows 下取消会尽力通过 `taskkill /F /T` 终止 DuctZip 启动的 wrapper 进程树，非 Windows 平台仍只保证直接子进程；正常完成路径的 reader join 设有 10 秒上限（极端慢输出 wrapper 的尾部输出可能截断）。捆绑的 7-Zip 无 Authenticode 签名；无第二台物理机的干净环境验证。
 
 ## 当前关键决策
 
@@ -146,7 +154,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.5：批量解压已完成（队列核心 + CLI 批量命令 + GUI 批量工作流，158 项测试通过）。
 - v0.6：Windows 集成已完成（HKCU 右键菜单 + Open-with + 可逆注册，DD-015）。
 - v0.7（安全/设置/隐私）：设置模型、设置 CLI/GUI 入口、安全强化与对抗性测试、MOTW 传播、安全隐私文档已实现（DD-016/017/018）；便携打包脚本与产物已实现，7-Zip 后端已捆绑（DD-008 修订），发布检查清单已建立。2026-09-26 fresh audit 的异常退出已复现并根因修复（GUI teardown 竞态），253 项测试连续 3 次全量通过。
-- v1.0（发布候选收尾）：用户手册、发布说明、证据摘要和版本号 `1.0.0rc1` 已进入工作树；2026-09-26 独立最终 Review、缺陷修复、构建复现与复验均已完成（`docs/FINAL_REVIEW.md`、`PROGRESS.md` 顶部），当前标记为 READY FOR CODEX ACCEPTANCE，等待 Codex 最终安全/结果验收。发布动作（push / tag / release）继续留待用户手动执行。
+- v1.0（发布候选收尾）：用户手册、发布说明、证据摘要和版本号 `1.0.0rc1` 已进入工作树；2026-09-26 独立最终 Review、缺陷修复、构建复现与复验均已完成（`docs/FINAL_REVIEW.md`、`PROGRESS.md` 顶部）。2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过，并通过 Codex 最终安全/结果验收（CODEX_ACCEPTED）。当前 `dist/` 仍是 2026-09-26 旧产物，须在最终提交后重建；push、Tag 和 Release 尚未执行。
 
 ### 明确暂缓
 
@@ -159,7 +167,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 
 ## 下一步
 
-当前执行入口为 `tasks/claude-code/2026-09-26_00-28_ductzip-final-review-and-rc-closure.md`。Claude Code 负责审查 `origin/main` 之后的本地提交和全部未提交改动、修复确认缺陷、排查 GUI lifecycle 偶发退出、恢复 wheel fresh build、修正产物 provenance 和离线文档断链，并在满足任务合同后输出 `READY_FOR_CODEX_ACCEPTANCE`。随后由 Codex 执行最终安全验收和结果验收。发布动作仍由用户手动决定。
+当前执行入口为 `tasks/claude-code/2026-09-26_00-28_ductzip-final-review-and-rc-closure.md`。Claude Code 已完成审查 `origin/main` 之后的本地提交和未提交改动、修复缺陷、排查 GUI lifecycle 偶发退出、恢复 wheel fresh build、修正产物 provenance 和离线文档断链，并输出 `READY_FOR_CODEX_ACCEPTANCE`；Codex 已完成最终安全/结果验收（CODEX_ACCEPTED）。发布动作仍由用户手动决定。
 
 7-Zip 后端捆绑已经完成（§10.2 #3 于 2026-09-19 批准并执行，来源与验证链见 DD-008 修订与 `THIRD_PARTY_NOTICES.md`）。干净机器验证没有第二台物理机，最终声明须限定在实际取得的证据范围内；未签名状态必须继续明示。稳定化与批量阶段确认的两条安全边界仍然适用：
 

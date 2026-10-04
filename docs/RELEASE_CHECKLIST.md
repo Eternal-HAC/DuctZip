@@ -1,5 +1,7 @@
 # DuctZip Release Checklist
 
+> 2026-10-04 update: full-suite hang fix completed; suite count is now 256 tests (CODEX_ACCEPTED). `dist/` still holds the 2026-09-26 old build and must be rebuilt before release.
+
 一步一步的发布前检查清单。当前状态：**v1.0.0rc1 发布候选，本清单已在 2026-09-19 完整执行，并在 2026-09-26 RC 关闭复核中重新执行并更新**（见 §8）。
 每一步的实际结果见 `PROGRESS.md` 的 Phase 7 各节与 2026-09-26 节；本节括号内是结论摘要。
 
@@ -8,7 +10,7 @@
 - [x] `git status --short` —— 只有本清单预期的文件；无 UNKNOWN 文件被改动或删除。
       （18 个修改 + 4 个新增，逐条列入 `PROGRESS.md` §7.7 的表格。）
 - [x] `python -m unittest discover -s tests`（`PYTHONPATH=src`、`PYTHONDONTWRITEBYTECODE=1`、`QT_QPA_PLATFORM=offscreen`）—— 全部通过；每个 skip 都在 `PROGRESS.md` 记录前提与影响。
-      （2026-09-26 修复后 **253 项通过，`OK`，0 跳过，连续 3 次全量运行退出码均为 0**，每次运行后无孤儿 `7z.exe`；GUI 相关模块对连续 20 次运行通过。09-19 基线为 247 项。）
+      （2026-10-04 修复后 **256 项通过，`OK`，0 跳过，连续 3 次全量运行退出码均为 0**，每次运行后无孤儿 `7z.exe`；09-19 基线为 247 项，09-26 中间状态为 253 项。）
 - [x] `python -m pip check` —— 无 broken requirements。
 - [x] `python -m pip wheel . --no-deps` —— 成功，wheel 版本与 `pyproject.toml` 一致。
       （`ductzip-1.0.0rc1-py3-none-any.whl`；2026-09-26 最终源码重建后 54,393 字节 / SHA-256 `ced8c72c…f401`。注意 wheel 构建非逐位可复现——zip 条目时间戳使逐次构建哈希不同，本记录为最终源码的单次构建实测值。）
@@ -18,7 +20,7 @@
 ## 2. 版本与文档一致性
 
 - [x] `pyproject.toml` / `src/ductzip/__init__.py` / README / PROJECT_STATUS / ROADMAP / CHANGELOG 的版本号、测试数、功能清单相互一致。
-      （全部为 `1.0.0rc1` / 253 项，2026-09-26 复核更新。）
+      （全部为 `1.0.0rc1` / 256 项，2026-10-04 更新；09-26 中间状态为 253 项。）
 - [x] CHANGELOG 的 [Unreleased] 已整理为目标版本段落，未重写历史条目。
 - [x] README「Not Yet Implemented」与真实行为一致（不宣称未实现的能力）。
 - [x] `docs/SECURITY.md` 的 MOTW/密码/网络承诺与代码行为一致。
@@ -28,7 +30,7 @@
 - [x] `python scripts/build_portable.py` 从零构建成功（可先删除 `dist/`）。
 - [x] 记录 `dist/build-manifest.json` 的 git 提交号、Python 版本、`bundled_7zip` 标志与 `bundled_7zip_backend`（版本/上游来源/安装包 SHA-256）；该文件不得出现构建机绝对路径。
       （2026-09-26：`git_commit=6d88b09`、`git_dirty=true`、`worktree_diff_sha256` 已记录（对 `git diff HEAD` 的 SHA-256，可审计）、`python=3.13.7`、`bundled_7zip=true`、后端 26.03 与上游安装包 SHA-256；绝对路径扫描为空。
-      2026-09-19 的遗留问题——提交号把 dirty tree 伪装成纯 HEAD 产物——已由 manifest 诚实记录修复；最终发布应在提交后重建，使 `git_dirty=false`。）
+      2026-09-19 的遗留问题——提交号把 dirty tree 伪装成纯 HEAD 产物——已由 manifest 诚实记录修复。当前 `dist/` 仍是 2026-09-26 的旧产物（`git_dirty=true`），最终发布前必须在提交后重新构建。）
 - [x] 记录产物 SHA-256（`.sha256` 文件内容）。
       （2026-09-26 最终源码重建后 `886f3bc74aca2e54d324b58519eaaa065695fda742630973987b56a349dca135`，与 `.sha256` 文件和重新测量一致；1,200,605 字节。）
 - [x] 解包检查：无 `tests/`、`__pycache__`、本地路径、私有样例；`LICENSE`/`THIRD_PARTY_NOTICES.md`/`README.md` 与 `vendor/7zip/` 在位。
@@ -68,11 +70,12 @@
 - [x] `PROGRESS.md` 记录以上每一步的实际结果。
 - [x] 最终 `git status` / 暂存差异 / 未跟踪文件已复核并记录。
 
-## 8. 2026-09-26 RC 关闭复核
+## 8. 2026-09-26 RC 关闭复核（2026-10-04 全量挂起修复已关闭，CODEX_ACCEPTED）
 
 - [x] 独立 Review 报告 `docs/FINAL_REVIEW.md` 先于修复完成；P0/P1 清零，RC 阻塞级 P2 全部修复（逐项见报告）。
 - [x] 首次全量套件异常退出（exit 1、无摘要）已用同签名复现崩溃根因解释，并以修复后 GUI 模块 20 连过 + 全量 3 连过关闭。
 - [x] 每个修复带回归测试，且在旧实现上确定性失败（GUI 回收 2 项、MOTW 1 项、构建 manifest/内容 3 项）。
 - [x] 便携包与 wheel 从最终源码重建；便携冒烟 11/11、wheel 干净 venv 冒烟 8/8（含 HKCU 注册往返零残留）。
-- [x] 发布说明/清单/CHANGELOG/SECURITY 已同步：新哈希、253 项、MOTW 边界措辞、已知限制第 9 条。
+- [x] 发布说明/清单/CHANGELOG/SECURITY 已同步到当前源码事实：256 项、Windows 进程树取消行为、MOTW 边界措辞和已知限制。
+- [ ] 最终提交后重新构建 wheel 与便携包，刷新 manifest、文件大小及 SHA-256，并重新执行隔离冒烟。
 - [x] 仍不做 push/tag/release；本地 checkpoint commit 已创建，最终发布动作留给用户。

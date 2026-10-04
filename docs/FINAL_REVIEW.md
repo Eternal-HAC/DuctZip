@@ -163,3 +163,41 @@
 复验矩阵（2026-09-26，全部实测）：全量套件 253 项 ×3 连过（每次 0 孤儿进程）；GUI 模块对 20 连过；
 便携冒烟 11/11；wheel 干净 venv 冒烟 8/8；HKCU 注册往返快照逐键相同；`git diff --check` 退出码 0；
 产物哈希与文档记录一致。最终 `git status`/diff 快照见 `PROGRESS.md` 顶部与本地 checkpoint commit。
+
+## 2026-10-04 Full-suite hang fix review
+
+Supplemental review by Codex for the hang observed when running the full test suite after the 2026-09-26 RC closure.
+
+### Changed files
+
+- `src/ductzip/archive/sevenzip.py`
+  - Cancellable `_run()` now uses dedicated reader threads + queues instead of `communicate(timeout=0.05)`.
+  - Added `_drain_text_stream()` / `_drain_queue()` helpers.
+  - `_terminate_process()` on Windows now runs `taskkill /F /T /PID <pid>` first to kill the whole process tree, preventing cmd.exe-wrapper grandchildren from keeping pipe write ends open.
+  - `taskkill` is invoked via parameterized `subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], ...)` so the command is explicit, testable, and still outside the mocked backend subprocess paths.
+- `tests/test_engine_lifecycle_regression.py`
+  - Added `test_delayed_stdout_after_wrapper_exit_is_captured`
+  - Added `test_delayed_stderr_after_wrapper_exit_is_captured`
+  - Added `test_cancel_terminates_grandchild_on_windows`
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| `python -m unittest tests.test_engine_lifecycle -v` | 16 tests OK |
+| `python -m unittest tests.test_password_handling -v` | 9 tests OK |
+| `python -m unittest discover -s tests` (run 1) | 256 tests OK |
+| `python -m unittest discover -s tests` (run 2) | 256 tests OK |
+| `python -m unittest discover -s tests` (run 3) | 256 tests OK |
+| `python -m py_compile src/ductzip/archive/sevenzip.py` | OK |
+Codex independent evidence: 256 tests in 61.414 s, OK.
+
+### Known limitations (unchanged)
+
+- Cancellation reaps the process tree DuctZip launched; non-Windows platforms still terminate only the immediate child.
+- Clean second-machine verification remains unavailable; verification is limited to the local evidence above.
+- The bundled upstream 7-Zip Windows binary is still not Authenticode-signed.
+
+### Closure conclusion
+
+Root cause identified and fixed, regression tests added, full suite passed three times consecutively, and Codex independently verified 256 tests in 61.414 seconds. Working tree remains unpushed. Status: **CODEX_ACCEPTED**.
