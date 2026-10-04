@@ -6,7 +6,7 @@
 
 2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过（Codex 独立复验 256 项 / 61.414s）。**Codex 最终安全/结果验收已通过（CODEX_ACCEPTED）**。发布动作（push / tag / release）继续留待用户手动执行。
 
-注意：当前 `dist/` 产物仍是 2026-09-26 的旧构建（manifest `git_dirty=true`），最终发布前必须在提交后重新构建。
+发布产物已从干净提交重建并完成隔离冒烟；最终文档提交后会再执行一次构建，要求 manifest 记录最终提交且 `git_dirty=false`。
 
 **Status: CODEX_ACCEPTED.** Release actions still deferred to the user.
 
@@ -154,7 +154,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.5：批量解压已完成（队列核心 + CLI 批量命令 + GUI 批量工作流，158 项测试通过）。
 - v0.6：Windows 集成已完成（HKCU 右键菜单 + Open-with + 可逆注册，DD-015）。
 - v0.7（安全/设置/隐私）：设置模型、设置 CLI/GUI 入口、安全强化与对抗性测试、MOTW 传播、安全隐私文档已实现（DD-016/017/018）；便携打包脚本与产物已实现，7-Zip 后端已捆绑（DD-008 修订），发布检查清单已建立。2026-09-26 fresh audit 的异常退出已复现并根因修复（GUI teardown 竞态），253 项测试连续 3 次全量通过。
-- v1.0（发布候选收尾）：用户手册、发布说明、证据摘要和版本号 `1.0.0rc1` 已进入工作树；2026-09-26 独立最终 Review、缺陷修复、构建复现与复验均已完成（`docs/FINAL_REVIEW.md`、`PROGRESS.md` 顶部）。2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过，并通过 Codex 最终安全/结果验收（CODEX_ACCEPTED）。当前 `dist/` 仍是 2026-09-26 旧产物，须在最终提交后重建；push、Tag 和 Release 尚未执行。
+- v1.0（发布候选收尾）：用户手册、发布说明、证据摘要和版本号 `1.0.0rc1` 已进入工作树；2026-09-26 独立最终 Review、缺陷修复、构建复现与复验均已完成（`docs/FINAL_REVIEW.md`、`PROGRESS.md` 顶部）。2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过，并通过 Codex 最终安全/结果验收（CODEX_ACCEPTED）。便携包和 wheel 已完成干净构建与隔离冒烟；push、Tag 和 Release 尚未执行。
 
 ### 明确暂缓
 

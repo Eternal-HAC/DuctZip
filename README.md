@@ -251,7 +251,7 @@ $env:QT_QPA_PLATFORM = "offscreen"
 - v0.5: batch extraction.
 - v0.6: Windows Explorer integration.
 - v0.7: settings, security hardening, and privacy documentation; portable packaging and the bundled 7-Zip backend.
-- v1.0.0rc1: release-candidate closure — every LONG_TASK §7 acceptance item executed and recorded, plus the end-user manual, release notes, and security statement. The current source passed 256 tests and Codex final acceptance; the existing `dist/` artifacts predate the latest fix and must be rebuilt before publishing. Not yet pushed, tagged, or published.
+- v1.0.0rc1: release-candidate closure — every LONG_TASK §7 acceptance item executed and recorded, plus the end-user manual, release notes, and security statement. The current source passed 256 tests and Codex final acceptance; release artifacts are built from a clean committed tree and carry their own manifest/checksum evidence. Not yet pushed, tagged, or published.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the detailed plan.
 

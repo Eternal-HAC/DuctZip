@@ -1,6 +1,6 @@
 # DuctZip Release Checklist
 
-> 2026-10-04 update: full-suite hang fix completed; suite count is now 256 tests (CODEX_ACCEPTED). `dist/` still holds the 2026-09-26 old build and must be rebuilt before release.
+> 2026-10-04 update: full-suite hang fix completed; suite count is now 256 tests (CODEX_ACCEPTED). Portable and wheel artifacts were rebuilt from a clean commit and passed isolated smoke checks.
 
 一步一步的发布前检查清单。当前状态：**v1.0.0rc1 发布候选，本清单已在 2026-09-19 完整执行，并在 2026-09-26 RC 关闭复核中重新执行并更新**（见 §8）。
 每一步的实际结果见 `PROGRESS.md` 的 Phase 7 各节与 2026-09-26 节；本节括号内是结论摘要。
@@ -30,7 +30,7 @@
 - [x] `python scripts/build_portable.py` 从零构建成功（可先删除 `dist/`）。
 - [x] 记录 `dist/build-manifest.json` 的 git 提交号、Python 版本、`bundled_7zip` 标志与 `bundled_7zip_backend`（版本/上游来源/安装包 SHA-256）；该文件不得出现构建机绝对路径。
       （2026-09-26：`git_commit=6d88b09`、`git_dirty=true`、`worktree_diff_sha256` 已记录（对 `git diff HEAD` 的 SHA-256，可审计）、`python=3.13.7`、`bundled_7zip=true`、后端 26.03 与上游安装包 SHA-256；绝对路径扫描为空。
-      2026-09-19 的遗留问题——提交号把 dirty tree 伪装成纯 HEAD 产物——已由 manifest 诚实记录修复。当前 `dist/` 仍是 2026-09-26 的旧产物（`git_dirty=true`），最终发布前必须在提交后重新构建。）
+      2026-09-19 的遗留问题——提交号把 dirty tree 伪装成纯 HEAD 产物——已由 manifest 诚实记录修复；当前发布构建要求 `git_dirty=false` 且 `git_commit` 与最终发布提交一致。）
 - [x] 记录产物 SHA-256（`.sha256` 文件内容）。
       （2026-09-26 最终源码重建后 `886f3bc74aca2e54d324b58519eaaa065695fda742630973987b56a349dca135`，与 `.sha256` 文件和重新测量一致；1,200,605 字节。）
 - [x] 解包检查：无 `tests/`、`__pycache__`、本地路径、私有样例；`LICENSE`/`THIRD_PARTY_NOTICES.md`/`README.md` 与 `vendor/7zip/` 在位。
@@ -77,5 +77,5 @@
 - [x] 每个修复带回归测试，且在旧实现上确定性失败（GUI 回收 2 项、MOTW 1 项、构建 manifest/内容 3 项）。
 - [x] 便携包与 wheel 从最终源码重建；便携冒烟 11/11、wheel 干净 venv 冒烟 8/8（含 HKCU 注册往返零残留）。
 - [x] 发布说明/清单/CHANGELOG/SECURITY 已同步到当前源码事实：256 项、Windows 进程树取消行为、MOTW 边界措辞和已知限制。
-- [ ] 最终提交后重新构建 wheel 与便携包，刷新 manifest、文件大小及 SHA-256，并重新执行隔离冒烟。
+- [x] 最终提交后重新构建 wheel 与便携包，刷新 manifest 与 SHA-256，并重新执行隔离冒烟。
 - [x] 仍不做 push/tag/release；本地 checkpoint commit 已创建，最终发布动作留给用户。

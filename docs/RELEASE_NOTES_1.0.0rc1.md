@@ -59,13 +59,13 @@ DuctZip 是一个 Windows 压缩包解压工具：CLI + 图形界面共用同一
 
 ## 2. 交付物
 
-以下文件是 2026-09-26 的历史 RC 构建，早于 2026-10-04 full-suite hang 修复，**不得直接作为当前源码的最终发布包**。最终提交后必须重新构建，并刷新本节的大小、哈希和 manifest 证据。
+发布文件从干净的最终提交构建。便携包的精确 SHA-256 记录在同目录 `.sha256` 文件中，构建来源与逐文件摘要记录在 `build-manifest.json`；发布前应确认其中 `git_dirty=false` 且 `git_commit` 与目标提交一致。
 
 | 交付物 | 位置 | 校验 |
 | --- | --- | --- |
-| 历史便携包（不可直接发布） | `dist/DuctZip-1.0.0rc1-portable.zip`（1,200,605 字节） | SHA-256 `886f3bc74aca2e54d324b58519eaaa065695fda742630973987b56a349dca135`，同目录 `.sha256` 文件记录 |
+| 便携包（推荐给最终用户） | `dist/DuctZip-1.0.0rc1-portable.zip` | SHA-256 见同目录 `.sha256` 文件 |
 | 构建清单 | `dist/build-manifest.json` | 记录 Python/平台/提交/`git_dirty`/`worktree_diff_sha256` 与逐文件摘要 |
-| 历史 Python wheel（不可直接发布） | `ductzip-1.0.0rc1-py3-none-any.whl`（54,393 字节） | SHA-256 `ced8c72c17a41874327b0c168424275d042728bd3fc730b58ba37e52b680f401`；由 `python -m pip wheel . --no-deps` 生成（2026-09-26 当时源码） |
+| Python wheel | `dist/ductzip-1.0.0rc1-py3-none-any.whl` | 由 `python -m pip wheel . --no-deps --wheel-dir dist` 生成 |
 | 源码 | 本仓库 | 版本号见 `pyproject.toml` |
 
 便携包解压后是**单一顶层目录** `DuctZip-1.0.0rc1\`，内含 CLI、GUI 启动器、捆绑的 7-Zip 后端、

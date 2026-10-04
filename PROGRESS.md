@@ -28,7 +28,7 @@
 
 **Status**: **CODEX_ACCEPTED**. Codex final safety/result acceptance passed on 2026-10-04.
 
-**Note on `dist/`**: the artifacts recorded above are still the 2026-09-26 old build (manifest `git_dirty=true`). They must be rebuilt from the final committed source before any push/tag/release.
+**Release rebuild**: the portable package and wheel were rebuilt from a clean committed tree, then exercised from an isolated extraction / clean virtual environment. The final post-documentation rebuild must retain `git_dirty=false` and identify the release commit in `dist/build-manifest.json`.
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.
 

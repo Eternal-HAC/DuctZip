@@ -233,7 +233,7 @@
 - [x] 完成 CHANGELOG。
 - [x] 完成基础自动化测试（当前 256 项：单元、队列、CLI、GUI offscreen、引擎生命周期、密码后端行为、MOTW 边界、发布产物构建回归；真实后端集成测试在检测到 7-Zip 时执行）。
 - [x] 完成发布前独立最终 Review 与复验。（2026-09-26 RC 关闭复核为 253 项连续 3 次通过；2026-10-04 full-suite hang 修复后为 256 项连续 3 次通过，并由 Codex 独立复验，见 `docs/FINAL_REVIEW.md` 与 `PROGRESS.md`）
-- [ ] 从最终提交后的干净工作树重新构建发布包。（现有 `dist/` 是 2026-09-26 旧构建；最终执行 `python scripts/build_portable.py` 生成 zip、`.sha256` 和 `build-manifest.json`，并重新做隔离冒烟）
+- [x] 从干净提交重新构建发布包。（`python scripts/build_portable.py` 生成 zip、`.sha256` 和 `build-manifest.json`；manifest 要求 `git_dirty=false`，便携包和 wheel 均完成隔离冒烟）
 
 ## v1.x 后续方向
 
