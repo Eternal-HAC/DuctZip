@@ -28,6 +28,8 @@
 
 **Status**: **CODEX_ACCEPTED**. Codex final safety/result acceptance passed on 2026-10-04.
 
+**Release status**: user authorized publishing on 2026-10-04. The final commit is tagged `v1.0.0rc1`, pushed to `origin/main`, and published as a GitHub pre-release with the portable zip, checksum sidecar, build manifest, and wheel.
+
 **Release rebuild**: the portable package and wheel were rebuilt from a clean committed tree, then exercised from an isolated extraction / clean virtual environment. The final post-documentation rebuild must retain `git_dirty=false` and identify the release commit in `dist/build-manifest.json`.
 
 Recovery ledger per `LONG_TASK.md` §11. Not a marketing status document.

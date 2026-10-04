@@ -200,4 +200,4 @@ Codex independent evidence: 256 tests in 61.414 s, OK.
 
 ### Closure conclusion
 
-Root cause identified and fixed, regression tests added, full suite passed three times consecutively, and Codex independently verified 256 tests in 61.414 seconds. Working tree remains unpushed. Status: **CODEX_ACCEPTED**.
+Root cause identified and fixed, regression tests added, full suite passed three times consecutively, and Codex independently verified 256 tests in 61.414 seconds. At acceptance time the working tree remained unpushed; the user subsequently authorized the `v1.0.0rc1` GitHub pre-release. Status: **CODEX_ACCEPTED / RELEASED**.

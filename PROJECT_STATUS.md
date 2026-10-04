@@ -4,15 +4,15 @@
 
 ## 2026-10-04 更新
 
-2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过（Codex 独立复验 256 项 / 61.414s）。**Codex 最终安全/结果验收已通过（CODEX_ACCEPTED）**。发布动作（push / tag / release）继续留待用户手动执行。
+2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过（Codex 独立复验 256 项 / 61.414s）。**Codex 最终安全/结果验收已通过（CODEX_ACCEPTED）**，用户已授权并完成 `v1.0.0rc1` GitHub pre-release 发布。
 
 发布产物已从干净提交重建并完成隔离冒烟；最终文档提交后会再执行一次构建，要求 manifest 记录最终提交且 `git_dirty=false`。
 
-**Status: CODEX_ACCEPTED.** Release actions still deferred to the user.
+**Status: v1.0.0rc1 RELEASED (GitHub pre-release).**
 
 ## 当前阶段
 
-当前功能实现已经推进到 `1.0.0rc1`：v0.4.1 Smart Output、v0.5 批量解压、v0.6 HKCU Windows 集成、v0.7 设置/安全/MOTW/便携打包和捆绑 7-Zip 后端均已进入本地代码。2026-09-26 独立最终 Review 与 RC 复验**已完成**（报告 `docs/FINAL_REVIEW.md`）：P1 GUI 关闭回收竞态（即 fresh audit 那次异常退出的根因）、MOTW 误标已存在文件、manifest 来源标识、便携包用户手册断链、发布说明本机路径全部修复。2026-10-04 全量套件挂起修复已完成：根因明确为取消时只终止直接子进程、wrapper 后代持有管道写端导致 reader/pipe 生命周期挂起；修复后引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过。Codex 最终安全/结果验收已通过（**CODEX_ACCEPTED**）；推送、Tag 和 Release 仍留待用户决定。
+当前功能实现已经推进到 `1.0.0rc1`：v0.4.1 Smart Output、v0.5 批量解压、v0.6 HKCU Windows 集成、v0.7 设置/安全/MOTW/便携打包和捆绑 7-Zip 后端均已进入本地代码。2026-09-26 独立最终 Review 与 RC 复验**已完成**（报告 `docs/FINAL_REVIEW.md`）：P1 GUI 关闭回收竞态（即 fresh audit 那次异常退出的根因）、MOTW 误标已存在文件、manifest 来源标识、便携包用户手册断链、发布说明本机路径全部修复。2026-10-04 全量套件挂起修复已完成：根因明确为取消时只终止直接子进程、wrapper 后代持有管道写端导致 reader/pipe 生命周期挂起；修复后引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过。Codex 最终安全/结果验收已通过（**CODEX_ACCEPTED**），`v1.0.0rc1` 已作为 GitHub pre-release 发布。
 
 2026-09-26 fresh audit 发现的问题均已关闭：完整测试异常退出 → 根因为 GUI teardown 竞态（同签名复现：0xC0000005 / 0xC0000374 / abort），修复后全量 3 连过、每次运行无孤儿 `7z.exe`；manifest 来源标识 → 现记录 `git_dirty` + `worktree_diff_sha256`；wheel fresh 重建 → 已完成（54,393 字节，`ced8c72c…f401`）；用户手册离线可达性 → 便携包根目录现含 `USER_MANUAL.md` 与本版本 `RELEASE_NOTES.md`。
 
@@ -154,7 +154,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 - v0.5：批量解压已完成（队列核心 + CLI 批量命令 + GUI 批量工作流，158 项测试通过）。
 - v0.6：Windows 集成已完成（HKCU 右键菜单 + Open-with + 可逆注册，DD-015）。
 - v0.7（安全/设置/隐私）：设置模型、设置 CLI/GUI 入口、安全强化与对抗性测试、MOTW 传播、安全隐私文档已实现（DD-016/017/018）；便携打包脚本与产物已实现，7-Zip 后端已捆绑（DD-008 修订），发布检查清单已建立。2026-09-26 fresh audit 的异常退出已复现并根因修复（GUI teardown 竞态），253 项测试连续 3 次全量通过。
-- v1.0（发布候选收尾）：用户手册、发布说明、证据摘要和版本号 `1.0.0rc1` 已进入工作树；2026-09-26 独立最终 Review、缺陷修复、构建复现与复验均已完成（`docs/FINAL_REVIEW.md`、`PROGRESS.md` 顶部）。2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过，并通过 Codex 最终安全/结果验收（CODEX_ACCEPTED）。便携包和 wheel 已完成干净构建与隔离冒烟；push、Tag 和 Release 尚未执行。
+- v1.0（发布候选收尾）：用户手册、发布说明、证据摘要和版本号 `1.0.0rc1` 已进入工作树；2026-09-26 独立最终 Review、缺陷修复、构建复现与复验均已完成（`docs/FINAL_REVIEW.md`、`PROGRESS.md` 顶部）。2026-10-04 全量套件挂起修复已完成：引入 reader 线程 + 队列、区分正常完成与取消的 reader 关闭语义、Windows 下用参数化可测试的 `taskkill /F /T` 杀整棵树，新增 3 项回归测试，256 项测试连续 3 次全量通过，并通过 Codex 最终安全/结果验收（CODEX_ACCEPTED）。便携包和 wheel 已完成干净构建与隔离冒烟，`v1.0.0rc1` 已推送、打 Tag 并创建 GitHub pre-release。
 
 ### 明确暂缓
 
@@ -167,7 +167,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 
 ## 下一步
 
-当前执行入口为 `tasks/claude-code/2026-09-26_00-28_ductzip-final-review-and-rc-closure.md`。Claude Code 已完成审查 `origin/main` 之后的本地提交和未提交改动、修复缺陷、排查 GUI lifecycle 偶发退出、恢复 wheel fresh build、修正产物 provenance 和离线文档断链，并输出 `READY_FOR_CODEX_ACCEPTANCE`；Codex 已完成最终安全/结果验收（CODEX_ACCEPTED）。发布动作仍由用户手动决定。
+当前执行入口为 `tasks/claude-code/2026-09-26_00-28_ductzip-final-review-and-rc-closure.md`。Claude Code 已完成审查与缺陷修复，Codex 已完成最终安全/结果验收（CODEX_ACCEPTED），用户于 2026-10-04 授权完成 `v1.0.0rc1` 发布。后续进入真实用户反馈与下一版本规划。
 
 7-Zip 后端捆绑已经完成（§10.2 #3 于 2026-09-19 批准并执行，来源与验证链见 DD-008 修订与 `THIRD_PARTY_NOTICES.md`）。干净机器验证没有第二台物理机，最终声明须限定在实际取得的证据范围内；未签名状态必须继续明示。稳定化与批量阶段确认的两条安全边界仍然适用：
 
@@ -183,7 +183,7 @@ v0.1 目标已经完成：DuctZip 可以发现 7-Zip、接收压缩包和输出�
 5. ~~真实桌面环境手动试用 Smart output 和冲突策略。~~ 已由 §7.3/§7.4 验收与 GUI 手动清单覆盖。
 6. 评估是否需要补充 GitHub Actions 自动测试。（仍待定，未实现，不在 v1.0 声明范围内）
 7. ~~7-Zip 后端捆绑~~ 已完成（`vendor/7zip/`，构建时强制校验固定 SHA-256）。
-8. 发布动作（push / tag / GitHub Release）按长期任务约束留待用户手动执行。
+8. 发布动作已由用户于 2026-10-04 明确授权并完成：push、`v1.0.0rc1` Tag、GitHub pre-release 与产物上传。
 
 ## 工作方式
 

@@ -2,7 +2,7 @@
 
 **版本：** `1.0.0rc1`（release candidate，**未签名**）
 **日期：** 2026-09-19（2026-09-26 RC 关闭复核，见 §0）
-**状态：** 发布候选，已通过 Codex 最终安全/结果验收（CODEX_ACCEPTED，2026-10-04）。本仓库**未推送、未打 Tag、未创建 GitHub Release**；推送与发布动作按长期任务约束留待用户手动执行。
+**状态：** 已发布为 GitHub pre-release `v1.0.0rc1`，并通过 Codex 最终安全/结果验收（CODEX_ACCEPTED，2026-10-04）。
 
 ---
 
@@ -34,7 +34,7 @@
 
 ---
 
-2026-10-04 全量套件挂起修复：取消路径改用 reader 线程 + 队列，Windows 下取消使用参数化 `taskkill /F /T` 终止整棵 wrapper 进程树，新增 3 项回归测试，测试总数从 253 增至 256 项，连续 3 次全量通过。状态 CODEX_ACCEPTED，未推送/打 Tag/发布。
+2026-10-04 全量套件挂起修复：取消路径改用 reader 线程 + 队列，Windows 下取消使用参数化 `taskkill /F /T` 终止整棵 wrapper 进程树，新增 3 项回归测试，测试总数从 253 增至 256 项，连续 3 次全量通过。状态 CODEX_ACCEPTED，并发布为 GitHub pre-release `v1.0.0rc1`。
 
 ## 1. 这个版本是什么
 
